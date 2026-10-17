@@ -1,99 +1,175 @@
 # Battle Arena Challenge
 
-Plataforma multijugador con integración hardware-software: dos jugadores se autentican, entran a una misma arena y controlan sus avatares en tiempo real con un dispositivo físico.
+Guía técnica para preparar el entorno de desarrollo del equipo. Los comandos de esta guía usan **PowerShell en Windows** y parten de la raíz del repositorio, salvo que se indique lo contrario.
 
-> Proyecto integrador del curso **CE-1105 Principios de Modelado en Ingeniería**
-> Escuela de Ingeniería en Computadores, Instituto Tecnológico de Costa Rica (TEC) · II Semestre 2026
-
-## Estado del proyecto
-
-| Sprint | Enfoque | Entrega | Estado |
-|--------|---------|---------|--------|
-| Sprint 1 | Análisis, comprensión y planificación | 24 sep 2026 | Entregado |
-| Sprint 2 | Primera implementación (MVP) | 22 oct 2026 | En desarrollo |
-| Sprint 3 | Evolución del producto | 23 nov 2026 | Pendiente |
-
-## Flujo que demuestra el MVP
-
-```
-Usuario → autenticación → partida → servidor → hardware → comunicación → avatar → arena
-```
-
-## Arquitectura (resumen)
-
-El sistema se compone de tres piezas principales:
-
-| Componente | Responsabilidad | Tecnología |
-|------------|-----------------|------------|
-| **API de cuentas y datos** | Registro, verificación de correo, login, perfil, avatares, configuración y persistencia | _TODO: framework_ + _TODO: base de datos_ |
-| **Servidor de juego** | Estado autoritativo de la partida en tiempo real: salas, posiciones, puntuación, ganador | _TODO: protocolo (p. ej. WebSocket)_ |
-| **Cliente** | Pantallas, arena, audio y lectura del control físico | Python + pygame |
-
-El detalle (vistas lógica, de despliegue y de componentes, patrones y justificación) está en la carpeta [`docs/`](docs/) y en la Wiki del proyecto.
+La descripción del producto, el MVP, la arquitectura, los sprints y el equipo están en [`docs/README.md`](docs/README.md). La **Wiki y el Board permanecen en Azure DevOps**; **GitHub se usa para control de versiones y CI**.
 
 ## Estructura del repositorio
 
-```
+```text
 .
-├── server/                  # API y servidor de juego (se ejecutan en Docker)
-├── client/                  # Cliente pygame (se ejecuta en el equipo del jugador)
-├── docs/                    # Modelo de datos, arquitectura, protocolo, bitácora
-├── docker-compose.yml       # Orquestación de contenedores
-├── .github/workflows/ci.yml # Pipeline de CI en GitHub Actions (build y pruebas)
+├── .github/workflows/ci.yml  # CI en GitHub Actions
+├── client/                  # Espacio para el cliente (pendiente de implementación)
+├── docs/                    # Documentación del producto
+├── server/                  # API FastAPI, Dockerfile, dependencias y pruebas
+├── .env.example             # Plantilla de configuración local de PostgreSQL
+├── docker-compose.yml       # API y PostgreSQL 16
 └── README.md
 ```
 
 ## Requisitos
 
-- Git
-- Docker y Docker Compose
-- Python 3.12 o superior (para el cliente)
-- Dispositivo de entrada: control de PS5 (o teclado en modo simulación)
+- [Git](https://git-scm.com/downloads).
+- [Python](https://www.python.org/downloads/) **3.12 recomendado**, para coincidir con Docker y CI. Es necesario para ejecutar la API y las pruebas fuera de Docker.
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) con Docker Compose y el motor de contenedores Linux. En Windows, habilitar el backend WSL2 y la virtualización; seguir los requisitos del instalador y reiniciar si lo solicita.
+- [VS Code](https://code.visualstudio.com/) recomendado, con las extensiones **Python** y **Pylance** de Microsoft.
+- Acceso al repositorio de GitHub y al Board/Wiki de Azure DevOps del equipo.
 
-## Cómo ejecutar
+Docker ejecuta su propio Python dentro del contenedor; no utiliza el entorno virtual local. No se necesita instalar PostgreSQL directamente en Windows.
 
-> Los comandos exactos se confirmarán al terminar el esqueleto del sistema.
+## Preparación inicial (cada integrante)
 
-**Servidor y base de datos**
+### 1. Clonar el repositorio
 
-```bash
-docker compose up --build
+```powershell
+git clone https://github.com/M4V1C/battle-arena-challenge.git
+cd battle-arena-challenge
+git switch develop
 ```
 
-**Cliente**
+Abrir esta carpeta como raíz del proyecto en VS Code. Para obtener cambios posteriores, usar `git pull --ff-only` en la rama compartida correspondiente, con el trabajo local guardado.
 
-```bash
-cd client
-pip install -r requirements.txt
-python main.py
+### 2. Verificar las herramientas
+
+Abrir Docker Desktop y esperar a que indique que el motor está en ejecución.
+
+```powershell
+git --version
+py -3.12 --version
+docker --version
+docker compose version
+docker version
 ```
 
-## Pruebas
+`docker version` debe mostrar las secciones **Client y Server**. Que funcione `docker --version` por sí solo no confirma que el motor esté listo.
 
-```bash
-pytest server/tests
+### 3. Crear el entorno virtual e instalar dependencias
+
+```powershell
+py -3.12 -m venv .venv
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r .\server\requirements.txt
+python -c "import sys; print(sys.executable)"
 ```
 
-Cada historia de usuario cuenta con al menos una prueba positiva y una negativa. El pipeline de CI (GitHub Actions, ver [`.github/workflows/ci.yml`](.github/workflows/ci.yml)) las ejecuta automáticamente en cada *push* o *pull request* contra `main`.
+La última línea debe apuntar a `.venv\Scripts\python.exe` dentro del repositorio. Si el comando `py` no está disponible, usar la ruta del intérprete de Python instalado para crear el entorno, verificando antes su versión; no usar por accidente el Python de MSYS2.
+
+Cada integrante crea su propio entorno: **no copiar ni subir `.venv`**. La carpeta ya está excluida en [`.gitignore`](.gitignore).
+
+En VS Code, ejecutar **Python: Select Interpreter** desde la paleta de comandos y seleccionar `.venv\Scripts\python.exe`. Abrir una terminal nueva; si no se activa automáticamente, ejecutar el comando de activación anterior.
+
+Si PowerShell bloquea el script de activación y las políticas del equipo lo permiten, habilitarlo solo en esa sesión:
+
+```powershell
+Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass
+.\.venv\Scripts\Activate.ps1
+```
+
+También se puede usar el intérprete sin activar el entorno ni cambiar políticas:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r .\server\requirements.txt
+.\.venv\Scripts\python.exe -m pytest .\server\tests
+```
+
+### 4. Preparar las variables de entorno
+
+Copiar la plantilla **solo si todavía no existe un archivo `.env`**:
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Editar `.env` y asignar una contraseña local propia a `POSTGRES_PASSWORD`. `POSTGRES_USER` y `POSTGRES_DB` definen el usuario y la base de datos iniciales. El archivo `.env` está ignorado por Git; no compartir contraseñas ni confirmarlo en commits.
+
+Docker Compose lee este archivo para configurar PostgreSQL. Actualmente la API solo expone `/health`: **todavía no tiene conexión a la base de datos**, por lo que estas variables no configuran una conexión de FastAPI.
+
+## Ejecutar con Docker
+
+Desde la raíz del repositorio:
+
+```powershell
+docker compose up --build -d
+docker compose ps
+Invoke-RestMethod http://localhost:8000/health
+docker compose exec db sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+```
+
+Comprobar que ambos contenedores estén en ejecución, que `/health` devuelva `{"status":"ok"}` (PowerShell lo muestra como un objeto) y que PostgreSQL indique `accepting connections`. El endpoint comprueba la API, no la conectividad con PostgreSQL.
+
+- API: http://localhost:8000
+- Documentación interactiva de FastAPI: http://localhost:8000/docs
+- PostgreSQL: puerto `5432` dentro de la red de Compose; no está publicado al equipo anfitrión.
+
+Comandos de uso diario:
+
+```powershell
+docker compose logs -f
+docker compose down
+```
+
+`down` detiene y elimina los contenedores, pero conserva los datos en el volumen `dbdata`. **No usar `docker compose down -v` salvo que se quiera borrar la base de datos local.** Cambiar las variables de PostgreSQL en `.env` no modifica usuarios, contraseñas ni bases ya inicializados en ese volumen.
+
+La imagen no monta el código local: después de modificar el servidor, ejecutar nuevamente `docker compose up --build -d`.
+
+## Ejecutar la API sin Docker (opcional)
+
+Con el entorno virtual activado, desde la raíz:
+
+```powershell
+python -m uvicorn app.main:app --app-dir .\server --reload --port 8000
+```
+
+Detener con `Ctrl+C`. No ejecutar a la vez este servidor y el contenedor de la API en el puerto `8000`. Si se necesita mantener ambos, usar otro puerto local, por ejemplo `--port 8001`.
+
+El cliente todavía no tiene código ejecutable ni archivo de dependencias. No se requieren pygame ni un control físico para preparar o probar la API actual.
+
+## Pruebas y CI
+
+Con el entorno virtual activado, desde la raíz:
+
+```powershell
+python -m pytest .\server\tests
+```
+
+Si la terminal ya está en la carpeta `server`, usar `python -m pytest`. Las pruebas actuales verifican `/health` y una ruta inexistente; no requieren Docker ni una base de datos.
+
+El workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) usa Python 3.12, instala las dependencias del servidor, ejecuta `python -m pytest` desde `server` y construye las imágenes con Docker Compose. Se activa en cada *push* a `main` y en cada *pull request* dirigido a `main`; no se ejecuta por un *push* a `develop` por sí solo.
+
+## Problemas frecuentes
+
+| Síntoma | Qué revisar |
+|---------|-------------|
+| `python` apunta a `C:\msys64\...`, o no encuentra `pip`/`pytest` | Activar `.venv` en esa terminal o usar directamente `.\.venv\Scripts\python.exe` desde la raíz. No instalar las dependencias en el Python de MSYS2. |
+| `docker` no se reconoce | Verificar la instalación de Docker Desktop y reiniciar VS Code por completo para recargar el PATH. |
+| Docker muestra error de conexión o HTTP 500 | Revisar el estado y los avisos de Docker Desktop; ejecutar `docker version` y `wsl --list --verbose`. En el backend WSL2 debe estar disponible `docker-desktop`. Si la instalación solicita reiniciar Windows, hacerlo. No borrar distribuciones ni volúmenes para intentar repararlo. |
+| El puerto `8000` está ocupado | Detener la otra instancia de la API o usar un puerto distinto al ejecutar Uvicorn localmente. |
+| PostgreSQL aún no acepta conexiones | Esperar a que termine la inicialización y consultar `docker compose logs db`. El orden de arranque de Compose no garantiza que la base ya esté lista. |
 
 ## Flujo de trabajo con Git
 
-- `main` es una rama protegida: solo recibe cambios mediante *pull request* con el CI en verde y al menos una revisión.
-- Cada historia de usuario se desarrolla en una rama propia: `feature/US-07-arena`, `feature/US-12-control-fisico`, etc.
+- Usar `develop` como base de trabajo compartida y crear una rama por historia, por ejemplo `git switch -c feature/US-07-arena`.
+- Antes de integrar cambios, ejecutar las pruebas y verificar el build con `docker compose build`.
+- `main` debe recibir cambios mediante *pull request*, con el CI en verde y al menos una revisión.
+- Usar mensajes [Conventional Commits](https://www.conventionalcommits.org/), por ejemplo `feat(server): agrega endpoint de salud`.
 - Los commits referencian el work item de Azure DevOps (por ejemplo `AB#123`) para mantener trazabilidad con el Board.
-
-## Equipo
-
-| Integrante | Épica(s) a cargo |
-|------------|------------------|
-| _TODO: nombre_ | E1 — Gestión de usuarios |
-| _TODO: nombre_ | E2 — Avatar y representación gráfica · E3 — Movimiento |
-| _TODO: nombre_ | E4 — Proceso del juego |
+- No versionar `.env`, `.venv`, credenciales ni datos locales de PostgreSQL.
 
 ## Documentación
 
-- Wiki del proyecto (Azure DevOps)
-- [`docs/`](docs/): modelo de datos, arquitectura, contrato de mensajes en tiempo real y bitácora
+- [`docs/README.md`](docs/README.md): producto, MVP, arquitectura, planificación y equipo.
+- Wiki de Azure DevOps: documentación detallada del proyecto.
+- Board de Azure DevOps: historias de usuario y seguimiento del trabajo.
 
 ## Licencia
 
