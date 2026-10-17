@@ -39,7 +39,7 @@ El detalle (vistas lógica, de despliegue y de componentes, patrones y justifica
 ├── client/                  # Cliente pygame (se ejecuta en el equipo del jugador)
 ├── docs/                    # Modelo de datos, arquitectura, protocolo, bitácora
 ├── docker-compose.yml       # Orquestación de contenedores
-├── azure-pipelines.yml      # Pipeline de CI (build y pruebas)
+├── .github/workflows/ci.yml # Pipeline de CI en GitHub Actions (build y pruebas)
 └── README.md
 ```
 
@@ -74,7 +74,7 @@ python main.py
 pytest server/tests
 ```
 
-Cada historia de usuario cuenta con al menos una prueba positiva y una negativa. El pipeline de CI las ejecuta automáticamente en cada *pull request*.
+Cada historia de usuario cuenta con al menos una prueba positiva y una negativa. El pipeline de CI (GitHub Actions, ver [`.github/workflows/ci.yml`](.github/workflows/ci.yml)) las ejecuta automáticamente en cada *push* o *pull request* contra `main`.
 
 ## Flujo de trabajo con Git
 
