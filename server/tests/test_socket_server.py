@@ -9,11 +9,17 @@ from app.game_state import EstadoJuego
 from app.socket_server import crear_socket_servidor, procesar_mensaje, servir
 
 
+def posiciones(estado: dict) -> dict:
+    return {
+        nombre: {"x": j["x"], "y": j["y"]} for nombre, j in estado["players"].items()
+    }
+
+
 def test_estado_inicial_tiene_dos_jugadores():
     """El estado inicial incluye las posiciones de ambos jugadores."""
     estado = EstadoJuego().estado()
 
-    assert estado["players"] == {
+    assert posiciones(estado) == {
         "red": {"x": 100, "y": 100},
         "blue": {"x": 660, "y": 460},
     }
@@ -31,8 +37,8 @@ def test_mover_actualiza_los_dos_jugadores_independientemente():
     )
     estado = juego.avanzar(1 / 60)
 
-    assert estado["players"]["red"] == {"x": 104.0, "y": 100.0}
-    assert estado["players"]["blue"] == {"x": 660.0, "y": 456.0}
+    assert posiciones(estado)["red"] == {"x": 104.0, "y": 100.0}
+    assert posiciones(estado)["blue"] == {"x": 660.0, "y": 456.0}
 
 
 def test_velocidad_no_depende_de_la_frecuencia_de_actualizacion():
@@ -94,7 +100,7 @@ def test_desconectar_detiene_el_movimiento():
 
     estado = juego.avanzar(1.0)
 
-    assert estado["players"]["red"] == {"x": 100, "y": 100}
+    assert posiciones(estado)["red"] == {"x": 100, "y": 100}
 
 
 def test_movimientos_concurrentes_no_pierden_actualizaciones():
@@ -143,8 +149,8 @@ def test_mover_limita_jugadores_a_la_arena():
         juego.avanzar(1 / 60)
 
     estado = juego.estado()
-    assert estado["players"]["red"] == {"x": 0, "y": 0}
-    assert estado["players"]["blue"] == {"x": 1560, "y": 860}
+    assert posiciones(estado)["red"] == {"x": 0, "y": 0}
+    assert posiciones(estado)["blue"] == {"x": 1560, "y": 860}
 
 
 @pytest.mark.parametrize(
@@ -162,7 +168,7 @@ def test_mover_rechaza_entradas_invalidas(entrada):
     with pytest.raises(ValueError):
         juego.actualizar_entradas(entrada)
 
-    assert juego.estado()["players"]["red"] == {"x": 100, "y": 100}
+    assert posiciones(juego.estado())["red"] == {"x": 100, "y": 100}
 
 
 def test_procesar_mensaje_devuelve_estado_json():

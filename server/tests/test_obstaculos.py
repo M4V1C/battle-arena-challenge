@@ -7,7 +7,8 @@ def mover_rojo(juego: EstadoJuego, x: int, y: int, segundos: float = 2.0) -> dic
     juego.actualizar_entradas({"red": {"x": x, "y": y}, "blue": {"x": 0, "y": 0}})
     for _ in range(int(segundos * 60)):
         juego.avanzar(1 / 60)
-    return juego.estado()["players"]["red"]
+    jugador = juego.estado()["players"]["red"]
+    return {"x": jugador["x"], "y": jugador["y"]}
 
 
 @pytest.mark.parametrize(

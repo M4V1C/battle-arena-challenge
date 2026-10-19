@@ -18,6 +18,9 @@ def main() -> int:
     except OSError as error:
         print(f"No se pudo conectar a {host}:{PORT}: {error}")
         return 1
+    except ValueError as error:
+        print(f"Error en keybindings.json: {error}")
+        return 1
     return 0
 
 if __name__ == "__main__":
