@@ -8,6 +8,11 @@ def test_procesar_mensaje_valido():
     assert procesar_mensaje("prueba") == "OK prueba"
 
 
+def test_procesar_mensaje_botones():
+    for i in range(1, 5):
+        assert procesar_mensaje(f"boton {i}") == f"OK boton {i}"
+
+
 def test_procesar_mensaje_invalido():
     assert procesar_mensaje("otra cosa") == "ERROR mensaje invalido"
 

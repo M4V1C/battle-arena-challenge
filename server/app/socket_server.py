@@ -4,12 +4,12 @@ import threading
 
 HOST = os.getenv("SOCKET_HOST", "0.0.0.0")
 PORT = int(os.getenv("SOCKET_PORT", "9000"))
-MENSAJE_ESPERADO = "prueba"
+MENSAJES_VALIDOS = {"prueba", "boton 1", "boton 2", "boton 3", "boton 4"}
 MAX_LINEA = 1024
 
 
 def procesar_mensaje(texto: str) -> str:
-    if texto == MENSAJE_ESPERADO:
+    if texto in MENSAJES_VALIDOS:
         return f"OK {texto}"
     return "ERROR mensaje invalido"
 
@@ -25,7 +25,11 @@ def manejar_cliente(conn: socket.socket, addr) -> None:
 
 def crear_socket_servidor(host: str = HOST, port: int = PORT) -> socket.socket:
     srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    # En Windows SO_REUSEADDR permite que dos procesos compartan el puerto.
+    if hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+    else:
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     srv.bind((host, port))
     srv.listen()
     return srv
