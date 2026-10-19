@@ -13,6 +13,32 @@ class Jugador:
     x: float
     y: float
 
+
+# Rectángulo estático que bloquea el paso de los jugadores.
+@dataclass(frozen=True)
+class Obstaculo:
+    x: float
+    y: float
+    ancho: float
+    alto: float
+
+    def colisiona(self, x: float, y: float, tamano: float) -> bool:
+        # Tocar el borde no cuenta como colisión, así el jugador puede deslizarse.
+        return (
+            x < self.x + self.ancho
+            and x + tamano > self.x
+            and y < self.y + self.alto
+            and y + tamano > self.y
+        )
+
+# Obstáculos iniciales en la arena.
+MAPA_INICIAL = (
+    Obstaculo(300, 250, 200, 40),
+    Obstaculo(900, 150, 40, 300),
+    Obstaculo(1200, 500, 250, 40),
+    Obstaculo(400, 600, 40, 200),
+)
+
 # Mantiene y actualiza las posiciones compartidas de ambos jugadores
 class EstadoJuego:
 
@@ -22,8 +48,8 @@ class EstadoJuego:
     VELOCIDAD = 240.0
 
     # Crea la arena con las posiciones iniciales de rojo y azul
-    def __init__(self):
-        
+    def __init__(self, obstaculos: tuple[Obstaculo, ...] = MAPA_INICIAL):
+        self._obstaculos = tuple(obstaculos)
         # El bloqueo hace atómicas las actualizaciones concurrentes recibidas
         # por los hilos que atienden conexiones TCP.
         self._bloqueo = threading.Lock()
@@ -69,11 +95,35 @@ class EstadoJuego:
                 if magnitud:
                     # Normalizar mantiene la misma velocidad al moverse en diagonal.
                     distancia = self.VELOCIDAD * delta_t
-                    jugador.x += (dx / magnitud) * distancia
-                    jugador.y += (dy / magnitud) * distancia
-                    jugador.x = min(max(jugador.x, 0), self.ANCHO - self.TAMANO_JUGADOR)
-                    jugador.y = min(max(jugador.y, 0), self.ALTO - self.TAMANO_JUGADOR)
+                    # Subpasos cortos evitan atravesar obstáculos delgados con delta_t grandes.
+                    pasos = max(1, math.ceil(distancia / (self.TAMANO_JUGADOR / 2)))
+                    paso_x = (dx / magnitud) * distancia / pasos
+                    paso_y = (dy / magnitud) * distancia / pasos
+                    for _ in range(pasos):
+                        # Resolver cada eje por separado permite deslizarse por las paredes.
+                        self._mover_x(jugador, paso_x)
+                        self._mover_y(jugador, paso_y)
             return self._crear_estado()
+
+    def _mover_x(self, jugador: Jugador, delta: float) -> None:
+        tamano = self.TAMANO_JUGADOR
+        jugador.x = min(max(jugador.x + delta, 0), self.ANCHO - tamano)
+        for obstaculo in self._obstaculos:
+            if obstaculo.colisiona(jugador.x, jugador.y, tamano):
+                if delta > 0:
+                    jugador.x = obstaculo.x - tamano
+                else:
+                    jugador.x = obstaculo.x + obstaculo.ancho
+
+    def _mover_y(self, jugador: Jugador, delta: float) -> None:
+        tamano = self.TAMANO_JUGADOR
+        jugador.y = min(max(jugador.y + delta, 0), self.ALTO - tamano)
+        for obstaculo in self._obstaculos:
+            if obstaculo.colisiona(jugador.x, jugador.y, tamano):
+                if delta > 0:
+                    jugador.y = obstaculo.y - tamano
+                else:
+                    jugador.y = obstaculo.y + obstaculo.alto
 
     # Detiene a los jugadores al perderse la conexión del cliente.
     def detener_movimiento(self) -> None:
@@ -96,6 +146,10 @@ class EstadoJuego:
                 nombre: {"x": jugador.x, "y": jugador.y}
                 for nombre, jugador in self._jugadores.items()
             },
+            "obstacles": [
+                {"x": o.x, "y": o.y, "width": o.ancho, "height": o.alto}
+                for o in self._obstaculos
+            ],
         }
 
     # Valida que cada eje sea un entero de movimiento entre -1 y 1.

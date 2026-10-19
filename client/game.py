@@ -10,6 +10,7 @@ TAMANO_JUGADOR = 40             # Tamaño visual de cada jugador en la ventana
 FONDO = (30, 30, 40)            # Color de fondo de la ventana de juego
 COLOR_ROJO = (220, 55, 55)      # Color del jugador rojo
 COLOR_AZUL = (55, 110, 230)     # Color del jugador azul
+COLOR_OBSTACULO = (110, 110, 125)  # Color de los obstáculos
 COLOR_TEXTO = (240, 240, 240)   # Color del texto en la ventana de juego
 COLOR_ERROR = (255, 150, 150)   # Color de los mensajes de error en la ventana de juego
 INTERVALO_ENTRADAS = 1 / 60     # Intervalo de tiempo entre envíos de entradas al servidor (segundos)
@@ -81,6 +82,15 @@ class Juego:
     # Dibuja la arena y los jugadores según el estado actual.
     def _dibujar(self, pantalla: pygame.Surface, fuente: pygame.font.Font) -> None:
         pantalla.fill(FONDO)
+        for obstaculo in self._estado.get("obstacles", []):
+            rectangulo = pygame.Rect(
+                int(obstaculo["x"]),
+                int(obstaculo["y"]),
+                int(obstaculo["width"]),
+                int(obstaculo["height"]),
+            )
+            pygame.draw.rect(pantalla, COLOR_OBSTACULO, rectangulo)
+
         jugadores = self._estado.get("players", {})
         for nombre, color in (("red", COLOR_ROJO), ("blue", COLOR_AZUL)):
             posicion = jugadores.get(nombre)
