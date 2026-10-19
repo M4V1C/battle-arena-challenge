@@ -17,7 +17,7 @@ Esta página describe el producto y su alcance previsto. Para instalar herramien
 | Sprint 2 | Primera implementación (MVP) | 22 oct 2026 | En desarrollo |
 | Sprint 3 | Evolución del producto | 23 nov 2026 | Pendiente |
 
-La implementación actual incluye una API base con FastAPI, un endpoint `/health`, pruebas automatizadas y un entorno Docker con PostgreSQL 16. Las funcionalidades de juego descritas a continuación son el alcance previsto, no funcionalidades ya implementadas.
+La implementación actual incluye una API base con FastAPI, un endpoint `/health`, una arena compartida con movimiento de dos jugadores, pruebas automatizadas y un entorno Docker con PostgreSQL 16. Las funcionalidades de juego descritas a continuación son el alcance previsto, no funcionalidades ya implementadas.
 
 ## Flujo que demuestra el MVP
 
@@ -34,8 +34,10 @@ El sistema se compone de tres piezas principales:
 | Componente | Responsabilidad prevista | Tecnología / estado |
 |------------|-------------------------|---------------------|
 | **API de cuentas y datos** | Registro, verificación de correo, login, perfil, avatares, configuración y persistencia | Base FastAPI y PostgreSQL 16 en Docker; funcionalidades y conexión a la base de datos pendientes |
-| **Servidor de juego** | Estado autoritativo de la partida en tiempo real: salas, posiciones, puntuación, ganador | Protocolo por definir (p. ej. WebSocket); implementación pendiente |
-| **Cliente** | Pantallas, arena, audio y lectura del control físico | Python + pygame previstos; implementación pendiente |
+| **Servidor de juego** | Procesa entradas y mantiene el estado autoritativo de los dos cuadrados en una arena compartida | FastAPI y servidor TCP con hilos por conexión; la lógica de movimiento está en `server/app/game_state.py` |
+| **Cliente** | Ventana local de dos jugadores, lectura de teclado y representación del estado recibido | Python + pygame; rojo usa WASD y azul las flechas |
+
+El cliente mantiene Pygame en el hilo principal y delega la comunicación TCP a un hilo de red. El servidor simula el movimiento a 60 Hz con una velocidad de 240 píxeles por segundo, independiente de los FPS o la frecuencia de paquetes; normaliza las diagonales y limita las posiciones a la arena. El estado compartido se sincroniza para atender conexiones concurrentes. Este prototipo ofrece una arena compartida y controles locales de dos jugadores; no implementa todavía salas independientes ni asignación de jugadores remotos.
 
 El detalle de las vistas lógica, de despliegue y de componentes, patrones y justificación se mantiene en esta carpeta y en la **Wiki de Azure DevOps**.
 

@@ -5,7 +5,7 @@ from fastapi import FastAPI
 
 from app.socket_server import HOST, PORT, crear_socket_servidor, servir
 
-
+# Context manager para el ciclo de vida del servidor de sockets
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     srv = crear_socket_servidor(HOST, PORT)
@@ -19,7 +19,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="Battle Arena Challenge", lifespan=lifespan)
 
-
+# Endpoint de verificación de estado del servidor
 @app.get("/health")
 def health():
     return {"status": "ok"}

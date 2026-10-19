@@ -9,7 +9,7 @@ La descripción del producto, el MVP, la arquitectura, los sprints y el equipo e
 ```text
 .
 ├── .github/workflows/ci.yml  # CI en GitHub Actions
-├── client/                  # Espacio para el cliente (pendiente de implementación)
+├── client/                  # Cliente local de dos jugadores con Pygame
 ├── docs/                    # Documentación del producto
 ├── server/                  # API FastAPI, Dockerfile, dependencias y pruebas
 ├── .env.example             # Plantilla de configuración local de PostgreSQL
@@ -122,6 +122,23 @@ docker compose down
 
 La imagen no monta el código local: después de modificar el servidor, ejecutar nuevamente `docker compose up --build -d`.
 
+## Ejecutar el cliente de juego
+
+Con Docker Compose arriba y el entorno virtual activado:
+
+```powershell
+python -m pip install -r .\client\requirements.txt
+python .\client\client.py
+```
+
+La ventana muestra dos cuadrados: **rojo** se mueve con `W`, `A`, `S`, `D`; **azul** con las flechas. El cliente se conecta al servidor TCP en `127.0.0.1:9000`. Para conectarse a un servidor en otra dirección, pasar el host:
+
+```powershell
+python .\client\client.py 192.168.1.25
+```
+
+También se pueden configurar `SERVER_HOST` y `SERVER_PORT`. El cliente envía las entradas y representa el estado que devuelve el servidor; el cálculo y los límites de movimiento viven en el servidor. Pygame permanece en su hilo principal y un hilo de red separado evita bloquear la ventana.
+
 ## Ejecutar la API sin Docker (opcional)
 
 Con el entorno virtual activado, desde la raíz:
@@ -130,9 +147,7 @@ Con el entorno virtual activado, desde la raíz:
 python -m uvicorn app.main:app --app-dir .\server --reload --port 8000
 ```
 
-Detener con `Ctrl+C`. No ejecutar a la vez este servidor y el contenedor de la API en el puerto `8000`. Si se necesita mantener ambos, usar otro puerto local, por ejemplo `--port 8001`.
-
-El cliente todavía no tiene código ejecutable ni archivo de dependencias. No se requieren pygame ni un control físico para preparar o probar la API actual.
+Detener con `Ctrl+C`. No ejecutar a la vez este servidor y el contenedor de la API en el puerto `8000`. Si se necesita mantener ambos, usar otro puerto local, por ejemplo `--port 8001`. Para que el cliente funcione, el servidor TCP en `9000` también debe estar en ejecución.
 
 ## Pruebas y CI
 
