@@ -7,7 +7,7 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
 import pygame
 
-from screens import ALTO, ANCHO, Aplicacion, VOLVER
+from screens import ALTO, ANCHO, Aplicacion, VOLVER, MODO_TIEMPO, CAMPO_VALOR, GUARDAR
 from game import Juego
 
 
@@ -16,8 +16,13 @@ class PantallasTest(unittest.TestCase):
         pygame.init()
         self.superficie = pygame.display.set_mode((ANCHO, ALTO))
         self.app = Aplicacion("127.0.0.1", 9000)
+        self.parche_red = patch("screens.ConexionServidor")
+        self.red = self.parche_red.start().return_value
+        self.red.obtener_estado.return_value = None
 
     def tearDown(self):
+        self.app._cerrar_configuracion()
+        self.parche_red.stop()
         pygame.quit()
 
     def pulsar(self, posicion):
@@ -68,4 +73,46 @@ class PantallasTest(unittest.TestCase):
         pygame.event.clear()
         pygame.event.post(pygame.event.Event(pygame.QUIT))
         self.assertFalse(juego.ejecutar())
+        conexion.return_value.cerrar.assert_called_once()
+
+    def test_cargar_editar_y_guardar_configuracion(self):
+        self.app._abrir_configuracion()
+        self.red.obtener_estado.return_value = {
+            "type": "config", "config": {"condition": "points", "value": 25, "sensitivity": 1.5}
+        }
+        self.app.actualizar_configuracion()
+        self.assertEqual(self.app._valor, "25")
+        self.pulsar(MODO_TIEMPO.center)
+        self.pulsar(CAMPO_VALOR.center)
+        self.app.procesar_evento(pygame.event.Event(pygame.TEXTINPUT, text="2"))
+        self.pulsar(GUARDAR.center)
+        self.red.guardar_configuracion.assert_called_once_with(
+            {"condition": "time", "value": 2, "sensitivity": 1.5}
+        )
+        self.assertTrue(self.app._pendiente)
+        self.red.obtener_estado.return_value = {
+            "type": "config", "config": {"condition": "time", "value": 2, "sensitivity": 1.5}
+        }
+        self.app.actualizar_configuracion()
+        self.assertEqual(self.app._confirmacion, "Configuracion guardada")
+        self.app.dibujar(self.superficie, pygame.font.SysFont(None, 36))
+
+    def test_valores_invalidos_no_se_envian(self):
+        self.app._abrir_configuracion()
+        self.app._configuracion_cargada = True
+        self.app._pendiente = False
+        for valor in ("0", "-1", "", "1.5"):
+            self.app._valor = valor
+            self.app._guardar_configuracion()
+            self.assertTrue(self.app.error)
+        self.red.guardar_configuracion.assert_not_called()
+
+    @patch("game.ConexionServidor")
+    def test_finalizar_partida_vuelve_al_inicio_y_cierra_conexion(self, conexion):
+        conexion.return_value.obtener_estado.return_value = {
+            "type": "state", "match": {"finished": True}
+        }
+        juego = Juego("127.0.0.1", 9000)
+        pygame.event.clear()
+        self.assertTrue(juego.ejecutar())
         conexion.return_value.cerrar.assert_called_once()
