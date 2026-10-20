@@ -1,24 +1,23 @@
-"""Ventana Pygame y controles locales para los dos jugadores."""
+# Ventana Pygame y controles locales para los dos jugadores.
 
 import pygame
 
 from keybindings import cargar_keybindings
 from network import ConexionServidor
 
-# Dimensiones visuales compartidas con el estado de juego del servidor.
-ANCHO, ALTO = 1600, 900         # Dimensiones de la ventana de juego
-TAMANO_JUGADOR = 40             # Tamaño visual de cada jugador en la ventana
-FONDO = (30, 30, 40)            # Color de fondo de la ventana de juego
-COLOR_ROJO = (220, 55, 55)      # Color del jugador rojo
-COLOR_AZUL = (55, 110, 230)     # Color del jugador azul
-COLOR_OBSTACULO = (110, 110, 125)  # Color de los obstáculos
+ANCHO, ALTO = 1600, 900             # Dimensiones de la ventana de juego
+TAMANO_JUGADOR = 40                 # Tamaño visual de cada jugador en la ventana
+FONDO = (30, 30, 40)                # Color de fondo de la ventana de juego
+COLOR_ROJO = (220, 55, 55)          # Color del jugador rojo
+COLOR_AZUL = (55, 110, 230)         # Color del jugador azul
+COLOR_OBSTACULO = (110, 110, 125)   # Color de los obstáculos
 COLOR_INTERACCION = (250, 220, 50)  # Color del círculo de interacción
 COLOR_PROYECTIL = (255, 240, 150)   # Color de los disparos
 COLOR_REACTOR = (250, 210, 40)      # Color del reactor y su anillo
 COLOR_CONGELADO = (170, 230, 255)   # Contorno de un jugador congelado en el reactor
-COLOR_TEXTO = (240, 240, 240)   # Color del texto en la ventana de juego
-COLOR_ERROR = (255, 150, 150)   # Color de los mensajes de error en la ventana de juego
-INTERVALO_ENTRADAS = 1 / 60     # Intervalo de tiempo entre envíos de entradas al servidor (segundos)
+COLOR_TEXTO = (240, 240, 240)       # Color del texto en la ventana de juego
+COLOR_ERROR = (255, 150, 150)       # Color de los mensajes de error en la ventana de juego
+INTERVALO_ENTRADAS = 1 / 60         # Intervalo de tiempo entre envíos de entradas al servidor (segundos)
 
 # Clase principal que maneja la lógica del juego y la interacción con el servidor.
 class Juego:
@@ -29,7 +28,7 @@ class Juego:
         self._estado = {
             "players": {
                 "red": {"x": 100, "y": 100, "dir_x": 1, "dir_y": 0},
-                "blue": {"x": 660, "y": 460, "dir_x": -1, "dir_y": 0},
+                "blue": {"x": ANCHO - TAMANO_JUGADOR - 100, "y": ALTO - TAMANO_JUGADOR - 100, "dir_x": -1, "dir_y": 0},
             }
         }
         # Contadores acumulados de pulsaciones que se envían al servidor.
@@ -40,9 +39,15 @@ class Juego:
         self._mensaje = f"Servidor: {host}:{port}"
 
     # Ejecuta el ciclo principal de Pygame y gestiona la comunicación con el servidor.
-    def ejecutar(self) -> None:
+    def ejecutar(self) -> bool:
+        from screens import VOLVER, dibujar_volver
+
         pygame.init()
-        self._teclas = cargar_keybindings()
+        try:
+            self._teclas = cargar_keybindings()
+        except (OSError, ValueError):
+            self._conexion.cerrar()
+            raise
         pantalla = pygame.display.set_mode((ANCHO, ALTO))
         pygame.display.set_caption("Battle Arena - Dos jugadores")
         fuente = pygame.font.SysFont(None, 28)
@@ -55,7 +60,10 @@ class Juego:
             while activo:
                 for evento in pygame.event.get():
                     if evento.type == pygame.QUIT:
-                        activo = False
+                        return False
+                    elif evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:
+                        if VOLVER.collidepoint(evento.pos):
+                            return True
                     elif evento.type == pygame.KEYDOWN:
                         self._registrar_accion(evento.key)
 
@@ -68,15 +76,17 @@ class Juego:
                 if respuesta is not None:
                     if respuesta.get("type") == "state":
                         self._estado = respuesta
+                        if respuesta.get("match", {}).get("finished"):
+                            return True
                     elif respuesta.get("type") == "error":
                         self._mensaje = f"Error de conexión: {respuesta.get('message', '')}"
 
                 self._dibujar(pantalla, fuente)
+                dibujar_volver(pantalla)
                 pygame.display.flip()
                 reloj.tick(60)
         finally:
             self._conexion.cerrar()
-            pygame.quit()
 
     # Cuenta las pulsaciones de disparo e interacción de cada jugador.
     def _registrar_accion(self, tecla: int) -> None:
@@ -159,6 +169,16 @@ class Juego:
             marcador = fuente.render(f"{etiqueta}: {puntos}", True, colores[nombre])
             pantalla.blit(marcador, (x, 15))
             x += marcador.get_width() + 40
+
+        partida = self._estado.get("match")
+        if partida is not None:
+            if partida["condition"] == "time":
+                segundos = max(0, int(partida["value"] * 60 - partida["elapsed"] + 0.999))
+                limite = f"Tiempo: {segundos // 60}:{segundos % 60:02d}"
+            else:
+                limite = f"Objetivo: {partida['value']} puntos"
+            texto_limite = fuente.render(limite, True, COLOR_TEXTO)
+            pantalla.blit(texto_limite, texto_limite.get_rect(midtop=(ANCHO // 2, 15)))
 
     # Dibuja una flecha centrada en el jugador que apunta según su vector de dirección.
     @staticmethod

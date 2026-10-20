@@ -1,5 +1,4 @@
 # Maneja la comunicación asíncrona entre el cliente y el servidor de juego.
-
 import json
 import queue
 import socket
@@ -10,7 +9,10 @@ from typing import Any
 class ConexionServidor:
 
     # Inicializa la conexión y los hilos de red.
-    def __init__(self, host: str, port: int, timeout: float = 5.0):
+    def __init__(
+        self, host: str, port: int, timeout: float = 5.0,
+        solicitud_inicial: dict[str, Any] | None = None,
+    ):
         self._socket = socket.create_connection((host, port), timeout=timeout)
         self._socket.settimeout(None)
         self._lector = self._socket.makefile("r", encoding="utf-8", newline="\n")
@@ -20,9 +22,12 @@ class ConexionServidor:
         self._entradas: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=1)
         self._estados: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=1)
         self._cerrando = threading.Event()
+        self._solicitud_inicial = solicitud_inicial or {"type": "start"}
         self._hilo = threading.Thread(target=self._procesar_red, daemon=True)
         self._hilo.start()
-        self._encolar({"type": "state"})
+
+    def guardar_configuracion(self, configuracion: dict[str, Any]) -> None:
+        self._encolar({"type": "save_config", "config": configuracion})
 
     # Programa el último estado de controles de ambos jugadores.
     def enviar_entradas(self, entradas: dict[str, dict[str, int]]) -> None:
@@ -73,11 +78,16 @@ class ConexionServidor:
     # Bucle de red que envía entradas y recibe estados sin bloquear el hilo principal.
     def _procesar_red(self) -> None:
         # Procesa solicitudes y respuestas sin bloquear el ciclo gráfico.
+        inicial = self._solicitud_inicial
         while not self._cerrando.is_set():
-            try:
-                mensaje = self._entradas.get(timeout=0.1)
-            except queue.Empty:
-                continue
+            if inicial is not None:
+                mensaje = inicial
+                inicial = None
+            else:
+                try:
+                    mensaje = self._entradas.get(timeout=0.1)
+                except queue.Empty:
+                    continue
 
             # Envía la entrada al servidor y espera la respuesta.
             try:

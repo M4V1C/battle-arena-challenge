@@ -5,6 +5,8 @@ import threading
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.game_config import CONFIGURACION_INICIAL, validar_configuracion
+
 ACCIONES = ("shoot", "interact")
 
 # Posición actual de un jugador dentro de la arena
@@ -58,18 +60,19 @@ MAPA_INICIAL = (
 # Mantiene y actualiza las posiciones compartidas de ambos jugadores
 class EstadoJuego:
 
-    ANCHO = 1600
-    ALTO = 900
-    TAMANO_JUGADOR = 40
-    VELOCIDAD = 240.0
-    TAMANO_PROYECTIL = 8
-    VELOCIDAD_PROYECTIL = 900.0
-    DURACION_INTERACCION = 0.15
+    ANCHO = 1600                          # Ancho de la arena.
+    ALTO = 900                            # Alto de la arena.
+    TAMANO_JUGADOR = 40                   # Tamaño del hitbox de los jugadores.
+    VELOCIDAD = 240.0                     # Velocidad de los jugadores en unidades por segundo.
+    TAMANO_PROYECTIL = 8                  # Tamaño del hitbox de los proyectiles.
+    VELOCIDAD_PROYECTIL = 900.0           # Velocidad de los proyectiles en unidades por segundo.
+    DURACION_INTERACCION = 0.15           # Duración en segundos de la interacción con el reactor.
     RADIO_REACTOR = 1.5 * TAMANO_JUGADOR  # Anillo de diámetro 3x el hitbox.
     INTERVALO_PUNTO = 0.5
 
     # Crea la arena con las posiciones iniciales de rojo y azul
     def __init__(self, obstaculos: tuple[Obstaculo, ...] = MAPA_INICIAL):
+        self._configuracion = dict(CONFIGURACION_INICIAL)
         self._obstaculos = tuple(obstaculos)
         self._reactor = Obstaculo(
             (self.ANCHO - self.TAMANO_JUGADOR) / 2,
@@ -84,9 +87,35 @@ class EstadoJuego:
         # El bloqueo hace atómicas las actualizaciones concurrentes recibidas
         # por los hilos que atienden conexiones TCP.
         self._bloqueo = threading.Lock()
+        self._reiniciar_estado()
+
+    # Reinicia la partida a su estado inicial.
+    def reiniciar_partida(self) -> None:
+        with self._bloqueo:
+            self._reiniciar_estado()
+
+    def iniciar_partida(self, configuracion: Any) -> dict[str, Any]:
+        configuracion = validar_configuracion(configuracion)
+        with self._bloqueo:
+            self._configuracion = configuracion
+            self._reiniciar_estado()
+            self._iniciada = True
+            return self._crear_estado()
+
+    # Inicializa o reinicia el estado interno del juego. No debe llamarse directamente desde fuera de la clase.
+    def _reiniciar_estado(self) -> None:
+        self._iniciada = False
+        self._terminada = False
+        self._tiempo_partida = 0.0
+        self._operador_reactor = None
+        self._tiempo_reactor = 0.0
         self._jugadores = {
             "red": Jugador(100, 100, dir_x=1.0),
-            "blue": Jugador(660, 460, dir_x=-1.0),
+            "blue": Jugador(
+                self.ANCHO - self.TAMANO_JUGADOR - 100,
+                self.ALTO - self.TAMANO_JUGADOR - 100,
+                dir_x=-1.0,
+            ),
         }
         self._proyectiles: list[Proyectil] = []
         # El servidor conserva la última dirección recibida y simula el
@@ -111,6 +140,9 @@ class EstadoJuego:
         }
 
         with self._bloqueo:
+            if self._terminada:
+                return self._crear_estado()
+            self._iniciada = True
             self._entradas.update(direcciones)
             for nombre, (dx, dy) in direcciones.items():
                 jugador = self._jugadores[nombre]
@@ -125,6 +157,7 @@ class EstadoJuego:
                     jugador.contadores[accion] = contador
             return self._crear_estado()
 
+    # Ejecuta la acción correspondiente a un jugador, como interactuar con el reactor o disparar.
     def _ejecutar_accion(self, nombre: str, accion: str) -> None:
         jugador = self._jugadores[nombre]
         if accion == "interact":
@@ -146,6 +179,7 @@ class EstadoJuego:
                 )
             )
 
+    # Verifica si un jugador está dentro del rango de interacción con el reactor.
     def _en_rango_reactor(self, jugador: Jugador) -> bool:
         mitad = self.TAMANO_JUGADOR / 2
         return math.hypot(
@@ -163,7 +197,18 @@ class EstadoJuego:
         ):
             raise ValueError("delta_t debe ser un número no negativo.")
 
+    # Simula el avance del juego durante un intervalo de tiempo delta_t, actualizando posiciones, proyectiles y el estado del reactor.
         with self._bloqueo:
+            if not self._iniciada or self._terminada:
+                return self._crear_estado()
+            condicion = self._configuracion["condition"]
+            limite = self._configuracion["value"]
+            if condicion == "time":
+                delta_t = min(delta_t, max(0.0, limite * 60 - self._tiempo_partida))
+            elif self._operador_reactor is not None:
+                restantes = limite - self._jugadores[self._operador_reactor].puntos
+                delta_t = min(delta_t, max(0.0, restantes * self.INTERVALO_PUNTO - self._tiempo_reactor))
+            self._tiempo_partida += delta_t
             for nombre, (dx, dy) in self._entradas.items():
                 jugador = self._jugadores[nombre]
                 magnitud = math.hypot(dx, dy)
@@ -182,11 +227,17 @@ class EstadoJuego:
                 jugador.tiempo_interaccion = max(0.0, jugador.tiempo_interaccion - delta_t)
             if self._operador_reactor is not None:
                 self._tiempo_reactor += delta_t
-                puntos, self._tiempo_reactor = divmod(self._tiempo_reactor, self.INTERVALO_PUNTO)
-                self._jugadores[self._operador_reactor].puntos += int(puntos)
+                puntos = math.floor((self._tiempo_reactor + 1e-9) / self.INTERVALO_PUNTO)
+                self._tiempo_reactor = max(0.0, self._tiempo_reactor - puntos * self.INTERVALO_PUNTO)
+                self._jugadores[self._operador_reactor].puntos += puntos
             self._proyectiles = [
                 p for p in self._proyectiles if self._mover_proyectil(p, delta_t)
             ]
+            self._terminada = (
+                self._tiempo_partida + 1e-9 >= limite * 60
+                if condicion == "time"
+                else any(jugador.puntos >= limite for jugador in self._jugadores.values())
+            )
             return self._crear_estado()
 
     # Avanza un proyectil y devuelve False si chocó con algo o salió del mapa.
@@ -213,7 +264,8 @@ class EstadoJuego:
                 ).colisiona(proyectil.x, proyectil.y, tamano):
                     return False
         return True
-
+    
+    # Mueve al jugador en la dirección x, manejando colisiones con los límites del mapa y obstáculos sólidos.
     def _mover_x(self, jugador: Jugador, delta: float) -> None:
         tamano = self.TAMANO_JUGADOR
         jugador.x = min(max(jugador.x + delta, 0), self.ANCHO - tamano)
@@ -224,6 +276,7 @@ class EstadoJuego:
                 else:
                     jugador.x = obstaculo.x + obstaculo.ancho
 
+    # Mueve al jugador en la dirección y, manejando colisiones con los límites del mapa y obstáculos sólidos.
     def _mover_y(self, jugador: Jugador, delta: float) -> None:
         tamano = self.TAMANO_JUGADOR
         jugador.y = min(max(jugador.y + delta, 0), self.ALTO - tamano)
@@ -234,7 +287,7 @@ class EstadoJuego:
                 else:
                     jugador.y = obstaculo.y + obstaculo.alto
 
-    # Detiene a los jugadores al perderse la conexión del cliente.
+    # Detiene a los jugadores al perderse la conexión del cliente, reiniciando sus entradas y contadores.
     def detener_movimiento(self) -> None:
         with self._bloqueo:
             self._entradas = {nombre: (0, 0) for nombre in self._jugadores}
@@ -256,6 +309,12 @@ class EstadoJuego:
             "height": self.ALTO,
             "player_size": self.TAMANO_JUGADOR,
             "projectile_size": self.TAMANO_PROYECTIL,
+            "match": {
+                "finished": self._terminada,
+                "elapsed": self._tiempo_partida,
+                "condition": self._configuracion["condition"],
+                "value": self._configuracion["value"],
+            },
             "players": {
                 nombre: {
                     "x": jugador.x,

@@ -3,7 +3,7 @@
 import os
 import sys
 
-from game import Juego
+from screens import Aplicacion
 
 HOST = os.getenv("SERVER_HOST", "127.0.0.1")
 PORT = int(os.getenv("SERVER_PORT", "9000"))
@@ -13,8 +13,8 @@ def main() -> int:
     """Conecta el cliente al servidor y ejecuta el juego."""
     host = sys.argv[1] if len(sys.argv) > 1 else HOST
     try:
-        juego = Juego(host, PORT)
-        juego.ejecutar()
+        aplicacion = Aplicacion(host, PORT)
+        aplicacion.ejecutar()
     except OSError as error:
         print(f"No se pudo conectar a {host}:{PORT}: {error}")
         return 1

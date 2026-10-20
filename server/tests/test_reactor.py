@@ -90,3 +90,15 @@ def test_puntaje_se_conserva_al_liberar_el_reactor():
     estado = avanzar(juego, 1)
 
     assert estado["players"]["red"]["score"] == 2
+
+
+def test_terminar_partida_reinicia_todo_el_estado():
+    juego = juego_junto_al_reactor()
+    juego.actualizar_entradas(entradas(red=(0, 0, 0, 1)))
+    avanzar(juego, 1.05)
+    juego.actualizar_entradas(entradas(red=(0, 0, 0, 1), blue=(0, 0, 1, 0)))
+
+    juego.reiniciar_partida()
+
+    assert juego.estado() == EstadoJuego(obstaculos=()).estado()
+    assert juego.avanzar(0.5) == EstadoJuego(obstaculos=()).estado()

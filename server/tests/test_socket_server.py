@@ -21,7 +21,7 @@ def test_estado_inicial_tiene_dos_jugadores():
 
     assert posiciones(estado) == {
         "red": {"x": 100, "y": 100},
-        "blue": {"x": 660, "y": 460},
+        "blue": {"x": 1460, "y": 760},
     }
 
 
@@ -38,7 +38,7 @@ def test_mover_actualiza_los_dos_jugadores_independientemente():
     estado = juego.avanzar(1 / 60)
 
     assert posiciones(estado)["red"] == {"x": 104.0, "y": 100.0}
-    assert posiciones(estado)["blue"] == {"x": 660.0, "y": 456.0}
+    assert posiciones(estado)["blue"] == {"x": 1460.0, "y": 756.0}
 
 
 def test_velocidad_no_depende_de_la_frecuencia_de_actualizacion():
@@ -132,7 +132,7 @@ def test_movimientos_concurrentes_no_pierden_actualizaciones():
 
     estado = juego.estado()
     assert estado["players"]["red"]["x"] == pytest.approx(100 + 40 * (240 / 60))
-    assert estado["players"]["blue"]["y"] == pytest.approx(460 - 40 * (240 / 60))
+    assert estado["players"]["blue"]["y"] == pytest.approx(760 - 40 * (240 / 60))
 
 
 def test_mover_limita_jugadores_a_la_arena():
