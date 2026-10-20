@@ -1,0 +1,25 @@
+services:
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-reactor}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-reactor}
+      POSTGRES_DB: ${POSTGRES_DB:-reactor}
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+
+  server:
+    build: ./server
+    environment:
+      SOCKET_HOST: 0.0.0.0
+      SOCKET_PORT: 9000
+    ports:
+      - "8000:8000"
+      - "9000:9000"
+    volumes:
+      - ./server/data:/app/data
+    depends_on:
+      - db
+
+volumes:
+  dbdata:
