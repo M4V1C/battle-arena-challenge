@@ -29,7 +29,7 @@ class Juego:
         self._estado = {
             "players": {
                 "red": {"x": 100, "y": 100, "dir_x": 1, "dir_y": 0},
-                "blue": {"x": 660, "y": 460, "dir_x": -1, "dir_y": 0},
+                "blue": {"x": ANCHO - TAMANO_JUGADOR - 100, "y": ALTO - TAMANO_JUGADOR - 100, "dir_x": -1, "dir_y": 0},
             }
         }
         # Contadores acumulados de pulsaciones que se envían al servidor.
@@ -40,9 +40,15 @@ class Juego:
         self._mensaje = f"Servidor: {host}:{port}"
 
     # Ejecuta el ciclo principal de Pygame y gestiona la comunicación con el servidor.
-    def ejecutar(self) -> None:
+    def ejecutar(self) -> bool:
+        from screens import VOLVER, dibujar_volver
+
         pygame.init()
-        self._teclas = cargar_keybindings()
+        try:
+            self._teclas = cargar_keybindings()
+        except (OSError, ValueError):
+            self._conexion.cerrar()
+            raise
         pantalla = pygame.display.set_mode((ANCHO, ALTO))
         pygame.display.set_caption("Battle Arena - Dos jugadores")
         fuente = pygame.font.SysFont(None, 28)
@@ -55,7 +61,10 @@ class Juego:
             while activo:
                 for evento in pygame.event.get():
                     if evento.type == pygame.QUIT:
-                        activo = False
+                        return False
+                    elif evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:
+                        if VOLVER.collidepoint(evento.pos):
+                            return True
                     elif evento.type == pygame.KEYDOWN:
                         self._registrar_accion(evento.key)
 
@@ -72,11 +81,11 @@ class Juego:
                         self._mensaje = f"Error de conexión: {respuesta.get('message', '')}"
 
                 self._dibujar(pantalla, fuente)
+                dibujar_volver(pantalla)
                 pygame.display.flip()
                 reloj.tick(60)
         finally:
             self._conexion.cerrar()
-            pygame.quit()
 
     # Cuenta las pulsaciones de disparo e interacción de cada jugador.
     def _registrar_accion(self, tecla: int) -> None:

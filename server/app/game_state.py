@@ -84,9 +84,24 @@ class EstadoJuego:
         # El bloqueo hace atómicas las actualizaciones concurrentes recibidas
         # por los hilos que atienden conexiones TCP.
         self._bloqueo = threading.Lock()
+        self._reiniciar_estado()
+
+    # Reinicia la partida a su estado inicial.
+    def reiniciar_partida(self) -> None:
+        with self._bloqueo:
+            self._reiniciar_estado()
+
+    # Inicializa o reinicia el estado interno del juego. No debe llamarse directamente desde fuera de la clase.
+    def _reiniciar_estado(self) -> None:
+        self._operador_reactor = None
+        self._tiempo_reactor = 0.0
         self._jugadores = {
             "red": Jugador(100, 100, dir_x=1.0),
-            "blue": Jugador(660, 460, dir_x=-1.0),
+            "blue": Jugador(
+                self.ANCHO - self.TAMANO_JUGADOR - 100,
+                self.ALTO - self.TAMANO_JUGADOR - 100,
+                dir_x=-1.0,
+            ),
         }
         self._proyectiles: list[Proyectil] = []
         # El servidor conserva la última dirección recibida y simula el
@@ -125,6 +140,7 @@ class EstadoJuego:
                     jugador.contadores[accion] = contador
             return self._crear_estado()
 
+    # Ejecuta la acción correspondiente a un jugador, como interactuar con el reactor o disparar.
     def _ejecutar_accion(self, nombre: str, accion: str) -> None:
         jugador = self._jugadores[nombre]
         if accion == "interact":
@@ -146,6 +162,7 @@ class EstadoJuego:
                 )
             )
 
+    # Verifica si un jugador está dentro del rango de interacción con el reactor.
     def _en_rango_reactor(self, jugador: Jugador) -> bool:
         mitad = self.TAMANO_JUGADOR / 2
         return math.hypot(
@@ -163,6 +180,7 @@ class EstadoJuego:
         ):
             raise ValueError("delta_t debe ser un número no negativo.")
 
+    # Simula el avance del juego durante un intervalo de tiempo delta_t, actualizando posiciones, proyectiles y el estado del reactor.
         with self._bloqueo:
             for nombre, (dx, dy) in self._entradas.items():
                 jugador = self._jugadores[nombre]
@@ -213,7 +231,8 @@ class EstadoJuego:
                 ).colisiona(proyectil.x, proyectil.y, tamano):
                     return False
         return True
-
+    
+    # Mueve al jugador en la dirección x, manejando colisiones con los límites del mapa y obstáculos sólidos.
     def _mover_x(self, jugador: Jugador, delta: float) -> None:
         tamano = self.TAMANO_JUGADOR
         jugador.x = min(max(jugador.x + delta, 0), self.ANCHO - tamano)
@@ -224,6 +243,7 @@ class EstadoJuego:
                 else:
                     jugador.x = obstaculo.x + obstaculo.ancho
 
+    # Mueve al jugador en la dirección y, manejando colisiones con los límites del mapa y obstáculos sólidos.
     def _mover_y(self, jugador: Jugador, delta: float) -> None:
         tamano = self.TAMANO_JUGADOR
         jugador.y = min(max(jugador.y + delta, 0), self.ALTO - tamano)
@@ -234,7 +254,7 @@ class EstadoJuego:
                 else:
                     jugador.y = obstaculo.y + obstaculo.alto
 
-    # Detiene a los jugadores al perderse la conexión del cliente.
+    # Detiene a los jugadores al perderse la conexión del cliente, reiniciando sus entradas y contadores.
     def detener_movimiento(self) -> None:
         with self._bloqueo:
             self._entradas = {nombre: (0, 0) for nombre in self._jugadores}

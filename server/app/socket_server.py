@@ -44,8 +44,7 @@ def manejar_cliente(
                 respuesta = procesar_mensaje(linea.strip(), estado_juego)
                 conn.sendall((respuesta + "\n").encode("utf-8"))
     finally:
-        # Evita que una entrada anterior mantenga movimiento tras desconectarse.
-        estado_juego.detener_movimiento()
+        estado_juego.reiniciar_partida()
 
 
 def crear_socket_servidor(host: str = HOST, port: int = PORT) -> socket.socket:
