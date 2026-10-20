@@ -116,3 +116,14 @@ class PantallasTest(unittest.TestCase):
         pygame.event.clear()
         self.assertTrue(juego.ejecutar())
         conexion.return_value.cerrar.assert_called_once()
+
+    @patch("game.ConexionServidor")
+    def test_dibujo_separa_orientacion_y_direccion_deseada(self, conexion):
+        juego = Juego("127.0.0.1", 9000)
+        juego._estado = {"players": {"red": {
+            "x": 100, "y": 100, "dir_x": 1, "dir_y": 0,
+            "move_x": 0, "move_y": 1,
+        }}}
+        juego._dibujar(self.superficie, pygame.font.SysFont(None, 28))
+        self.assertEqual(self.superficie.get_at((139, 120))[:3], (220, 55, 55))
+        self.assertEqual(self.superficie.get_at((120, 150))[:3], (185, 195, 205))

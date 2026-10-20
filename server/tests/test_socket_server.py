@@ -31,14 +31,20 @@ def test_mover_actualiza_los_dos_jugadores_independientemente():
 
     juego.actualizar_entradas(
         {
-            "red": {"x": 1, "y": 0},
+            "red": {"x": 0, "y": 1},
             "blue": {"x": 0, "y": -1},
         }
     )
     estado = juego.avanzar(1 / 60)
 
-    assert posiciones(estado)["red"] == {"x": 104.0, "y": 100.0}
-    assert posiciones(estado)["blue"] == {"x": 1460.0, "y": 756.0}
+    radio = juego.VELOCIDAD / juego.VELOCIDAD_GIRO
+    angulo = juego.VELOCIDAD_GIRO / 60
+    assert posiciones(estado)["red"] == pytest.approx({
+        "x": 100 + radio * math.sin(angulo), "y": 100 + radio * (1 - math.cos(angulo))
+    })
+    assert posiciones(estado)["blue"] == pytest.approx({
+        "x": 1460 - radio * math.sin(angulo), "y": 760 - radio * (1 - math.cos(angulo))
+    })
 
 
 def test_velocidad_no_depende_de_la_frecuencia_de_actualizacion():
@@ -46,7 +52,7 @@ def test_velocidad_no_depende_de_la_frecuencia_de_actualizacion():
     juego = EstadoJuego()
     juego.actualizar_entradas(
         {
-            "red": {"x": 1, "y": 0},
+            "red": {"x": 0, "y": 1},
             "blue": {"x": 0, "y": 0},
         }
     )
@@ -58,7 +64,7 @@ def test_velocidad_no_depende_de_la_frecuencia_de_actualizacion():
     otro_juego = EstadoJuego()
     otro_juego.actualizar_entradas(
         {
-            "red": {"x": 1, "y": 0},
+            "red": {"x": 0, "y": 1},
             "blue": {"x": 0, "y": 0},
         }
     )
@@ -66,8 +72,9 @@ def test_velocidad_no_depende_de_la_frecuencia_de_actualizacion():
         otro_juego.avanzar(1 / 120)
     estado_120_fps = otro_juego.estado()["players"]["red"]["x"]
 
-    assert estado_30_fps == pytest.approx(220.0)
-    assert estado_120_fps == pytest.approx(220.0)
+    esperado = 100 + juego.VELOCIDAD / juego.VELOCIDAD_GIRO
+    assert estado_30_fps == pytest.approx(esperado)
+    assert estado_120_fps == pytest.approx(esperado)
 
 
 def test_movimiento_diagonal_mantiene_la_misma_velocidad():
@@ -84,7 +91,8 @@ def test_movimiento_diagonal_mantiene_la_misma_velocidad():
     jugador = estado["players"]["red"]
     distancia = math.hypot(jugador["x"] - 100, jugador["y"] - 100)
 
-    assert distancia == pytest.approx(4.0)
+    esperado = 2 * juego.VELOCIDAD / juego.VELOCIDAD_GIRO * math.sin(juego.VELOCIDAD_GIRO / 120)
+    assert distancia == pytest.approx(esperado)
 
 
 def test_desconectar_detiene_el_movimiento():
@@ -117,7 +125,7 @@ def test_movimientos_concurrentes_no_pierden_actualizaciones():
 
     juego.actualizar_entradas(
         {
-            "red": {"x": 1, "y": 0},
+            "red": {"x": 0, "y": 1},
             "blue": {"x": 0, "y": -1},
         }
     )
@@ -131,18 +139,25 @@ def test_movimientos_concurrentes_no_pierden_actualizaciones():
         hilo.join()
 
     estado = juego.estado()
-    assert estado["players"]["red"]["x"] == pytest.approx(100 + 40 * (240 / 60))
-    assert estado["players"]["blue"]["y"] == pytest.approx(760 - 40 * (240 / 60))
+    radio = juego.VELOCIDAD / juego.VELOCIDAD_GIRO
+    assert estado["players"]["red"]["x"] == pytest.approx(100 + radio)
+    distancia_recta = juego.VELOCIDAD * (40 / 60 - math.pi / 2 / juego.VELOCIDAD_GIRO)
+    assert estado["players"]["red"]["y"] == pytest.approx(100 + radio + distancia_recta)
+    assert estado["players"]["blue"]["y"] == pytest.approx(760 - radio - distancia_recta)
 
 
 def test_mover_limita_jugadores_a_la_arena():
     """Los jugadores no pueden salir de los límites de la ventana."""
     juego = EstadoJuego()
+    juego._jugadores["red"].x, juego._jugadores["red"].y = 0, 0
+    juego._jugadores["red"].dir_x, juego._jugadores["red"].dir_y = -1, 0
+    juego._jugadores["blue"].x, juego._jugadores["blue"].y = 1560, 860
+    juego._jugadores["blue"].dir_x, juego._jugadores["blue"].dir_y = 1, 0
 
     juego.actualizar_entradas(
         {
-            "red": {"x": -1, "y": -1},
-            "blue": {"x": 1, "y": 1},
+            "red": {"x": 0, "y": -1},
+            "blue": {"x": 0, "y": 1},
         }
     )
     for _ in range(400):

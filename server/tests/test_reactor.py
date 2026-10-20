@@ -31,8 +31,9 @@ def test_reactor_esta_en_el_centro_y_es_solido():
     assert (reactor["x"], reactor["y"], reactor["size"]) == (780, 430, 40)
     assert reactor["ring_radius"] == 60
 
-    juego._jugadores["red"].x, juego._jugadores["red"].y = 600, 430
-    juego.actualizar_entradas(entradas(red=(1, 0, 0, 0)))
+    juego._jugadores["red"].x, juego._jugadores["red"].y = 720, 430
+    juego._jugadores["red"].dir_x, juego._jugadores["red"].dir_y = 0, 1
+    juego.actualizar_entradas(entradas(red=(0, -1, 0, 0)))
     assert avanzar(juego, 2)["players"]["red"]["x"] == pytest.approx(740)
 
 
@@ -45,6 +46,8 @@ def test_interactuar_en_rango_congela_y_volver_a_interactuar_libera():
     assert estado["players"]["red"]["frozen"] is True
     assert estado["reactor"]["operator"] == "red"
     assert estado["players"]["red"]["x"] == 740
+    assert (estado["players"]["red"]["dir_x"], estado["players"]["red"]["dir_y"]) == (1, 0)
+    assert (estado["players"]["red"]["move_x"], estado["players"]["red"]["move_y"]) == (-1, 0)
     assert estado["projectiles"] == []
 
     juego.actualizar_entradas(entradas(red=(-1, 0, 1, 2)))

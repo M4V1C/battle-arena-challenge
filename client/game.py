@@ -17,6 +17,7 @@ COLOR_REACTOR = (250, 210, 40)      # Color del reactor y su anillo
 COLOR_CONGELADO = (170, 230, 255)   # Contorno de un jugador congelado en el reactor
 COLOR_TEXTO = (240, 240, 240)       # Color del texto en la ventana de juego
 COLOR_ERROR = (255, 150, 150)       # Color de los mensajes de error en la ventana de juego
+COLOR_DIRECCION_DESEADA = (185, 195, 205)
 INTERVALO_ENTRADAS = 1 / 60         # Intervalo de tiempo entre envíos de entradas al servidor (segundos)
 
 # Clase principal que maneja la lógica del juego y la interacción con el servidor.
@@ -142,6 +143,16 @@ class Juego:
             )
             direccion = pygame.Vector2(jugador.get("dir_x", 1), jugador.get("dir_y", 0))
             self._dibujar_flecha(pantalla, centro, direccion, color)
+            deseada = pygame.Vector2(jugador.get("move_x", 0), jugador.get("move_y", 0))
+            if deseada.length_squared():
+                deseada = deseada.normalize()
+                punta = centro + deseada * (TAMANO_JUGADOR * 0.8)
+                lateral = pygame.Vector2(-deseada.y, deseada.x)
+                pygame.draw.line(pantalla, COLOR_DIRECCION_DESEADA, centro, punta, 1)
+                pygame.draw.polygon(pantalla, COLOR_DIRECCION_DESEADA, [
+                    punta, punta - deseada * 8 + lateral * 4,
+                    punta - deseada * 8 - lateral * 4,
+                ])
             if jugador.get("frozen"):
                 contorno = pygame.Rect(0, 0, TAMANO_JUGADOR, TAMANO_JUGADOR)
                 contorno.center = (int(centro.x), int(centro.y))

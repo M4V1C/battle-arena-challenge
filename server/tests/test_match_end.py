@@ -52,10 +52,14 @@ def test_configuracion_del_protocolo_se_aplica_al_iniciar(tmp_path):
 
 
 def test_sensibilidad_no_cambia_la_velocidad():
-    juego = EstadoJuego(obstaculos=())
-    juego.iniciar_partida({"condition": "points", "value": 20, "sensitivity": 5})
-    juego.actualizar_entradas({"red": {"x": 1, "y": 0}, "blue": {"x": 0, "y": 0}})
-    assert juego.avanzar(0.1)["players"]["red"]["x"] == pytest.approx(124)
+    estados = []
+    for sensibilidad in (1, 5):
+        juego = EstadoJuego(obstaculos=())
+        juego.iniciar_partida({"condition": "points", "value": 20, "sensitivity": sensibilidad})
+        juego.actualizar_entradas({"red": {"x": 0, "y": 1}, "blue": {"x": 0, "y": 0}})
+        estados.append(juego.avanzar(0.1))
+    assert estados[0] == estados[1]
+    assert estados[0]["players"]["red"]["x"] > 100
 
 
 def test_solo_se_aplica_la_condicion_seleccionada():

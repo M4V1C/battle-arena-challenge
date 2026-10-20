@@ -14,9 +14,11 @@ ACCIONES = ("shoot", "interact")
 class Jugador:
     x: float
     y: float
-    # Vector unitario de apuntado; conserva la última dirección de movimiento.
+    # Vector unitario real; conserva la orientacion al detenerse.
     dir_x: float = 1.0
     dir_y: float = 0.0
+    mov_x: float = 0.0
+    mov_y: float = 0.0
     tiempo_interaccion: float = 0.0
     puntos: int = 0
     # Último contador de pulsaciones procesado por acción.
@@ -69,6 +71,8 @@ class EstadoJuego:
     DURACION_INTERACCION = 0.15           # Duración en segundos de la interacción con el reactor.
     RADIO_REACTOR = 1.5 * TAMANO_JUGADOR  # Anillo de diámetro 3x el hitbox.
     INTERVALO_PUNTO = 0.5
+    VELOCIDAD_GIRO = math.radians(360)
+    ZONA_MUERTA = 0.15
 
     # Crea la arena con las posiciones iniciales de rojo y azul
     def __init__(self, obstaculos: tuple[Obstaculo, ...] = MAPA_INICIAL):
@@ -147,8 +151,8 @@ class EstadoJuego:
             for nombre, (dx, dy) in direcciones.items():
                 jugador = self._jugadores[nombre]
                 magnitud = math.hypot(dx, dy)
-                if magnitud and nombre != self._operador_reactor:
-                    jugador.dir_x, jugador.dir_y = dx / magnitud, dy / magnitud
+                jugador.mov_x = dx / magnitud if magnitud else 0.0
+                jugador.mov_y = dy / magnitud if magnitud else 0.0
                 # Los contadores son acumulativos: una pulsación no se pierde
                 # aunque el cliente descarte mensajes intermedios.
                 for accion, contador in acciones[nombre].items():
@@ -211,18 +215,8 @@ class EstadoJuego:
             self._tiempo_partida += delta_t
             for nombre, (dx, dy) in self._entradas.items():
                 jugador = self._jugadores[nombre]
-                magnitud = math.hypot(dx, dy)
-                if magnitud and nombre != self._operador_reactor:
-                    # Normalizar mantiene la misma velocidad al moverse en diagonal.
-                    distancia = self.VELOCIDAD * delta_t
-                    # Subpasos cortos evitan atravesar obstáculos delgados con delta_t grandes.
-                    pasos = max(1, math.ceil(distancia / (self.TAMANO_JUGADOR / 2)))
-                    paso_x = (dx / magnitud) * distancia / pasos
-                    paso_y = (dy / magnitud) * distancia / pasos
-                    for _ in range(pasos):
-                        # Resolver cada eje por separado permite deslizarse por las paredes.
-                        self._mover_x(jugador, paso_x)
-                        self._mover_y(jugador, paso_y)
+                if nombre != self._operador_reactor:
+                    self._mover_girando(jugador, math.hypot(dx, dy), delta_t)
             for jugador in self._jugadores.values():
                 jugador.tiempo_interaccion = max(0.0, jugador.tiempo_interaccion - delta_t)
             if self._operador_reactor is not None:
@@ -239,6 +233,45 @@ class EstadoJuego:
                 else any(jugador.puntos >= limite for jugador in self._jugadores.values())
             )
             return self._crear_estado()
+
+    def _mover_girando(self, jugador: Jugador, intensidad: float, delta_t: float) -> None:
+        if not intensidad or not delta_t:
+            return
+        angulo = math.atan2(jugador.dir_y, jugador.dir_x)
+        objetivo = math.atan2(jugador.mov_y, jugador.mov_x)
+        diferencia = (objetivo - angulo + math.pi) % math.tau - math.pi
+        velocidad = self.VELOCIDAD * min(intensidad, 1.0)
+        if abs(diferencia) < 1e-9:
+            jugador.dir_x, jugador.dir_y = jugador.mov_x, jugador.mov_y
+            self._mover_recto(jugador, velocidad * delta_t)
+            return
+        velocidad_angular = math.copysign(self.VELOCIDAD_GIRO, diferencia)
+        duracion = min(delta_t, abs(diferencia) / self.VELOCIDAD_GIRO)
+        pasos = max(
+            1, math.ceil(duracion * 120),
+            math.ceil(velocidad * duracion / (self.TAMANO_JUGADOR / 2)),
+        )
+        paso_t = duracion / pasos
+        for _ in range(pasos):
+            siguiente = angulo + velocidad_angular * paso_t
+            paso_x = velocidad * (math.sin(siguiente) - math.sin(angulo)) / velocidad_angular
+            paso_y = velocidad * (math.cos(angulo) - math.cos(siguiente)) / velocidad_angular
+            self._mover_x(jugador, paso_x)
+            self._mover_y(jugador, paso_y)
+            angulo = siguiente
+        if abs(diferencia) <= self.VELOCIDAD_GIRO * delta_t + 1e-9:
+            jugador.dir_x, jugador.dir_y = jugador.mov_x, jugador.mov_y
+        else:
+            jugador.dir_x, jugador.dir_y = math.cos(angulo), math.sin(angulo)
+        self._mover_recto(jugador, velocidad * max(0.0, delta_t - duracion))
+
+    def _mover_recto(self, jugador: Jugador, distancia: float) -> None:
+        if distancia <= 0:
+            return
+        pasos = max(1, math.ceil(distancia / (self.TAMANO_JUGADOR / 2)))
+        for _ in range(pasos):
+            self._mover_x(jugador, jugador.dir_x * distancia / pasos)
+            self._mover_y(jugador, jugador.dir_y * distancia / pasos)
 
     # Avanza un proyectil y devuelve False si chocó con algo o salió del mapa.
     def _mover_proyectil(self, proyectil: Proyectil, delta_t: float) -> bool:
@@ -295,6 +328,7 @@ class EstadoJuego:
             # Un cliente nuevo empieza sus contadores desde cero.
             for jugador in self._jugadores.values():
                 jugador.contadores = dict.fromkeys(ACCIONES, 0)
+                jugador.mov_x = jugador.mov_y = 0.0
 
     # Devuelve un snapshot serializable con ambas posiciones actuales
     def estado(self) -> dict[str, Any]:
@@ -321,6 +355,8 @@ class EstadoJuego:
                     "y": jugador.y,
                     "dir_x": jugador.dir_x,
                     "dir_y": jugador.dir_y,
+                    "move_x": jugador.mov_x,
+                    "move_y": jugador.mov_y,
                     "interacting": jugador.tiempo_interaccion > 0,
                     "frozen": nombre == self._operador_reactor,
                     "score": jugador.puntos,
@@ -341,18 +377,23 @@ class EstadoJuego:
             ],
         }
 
-    # Valida que cada eje sea un entero de movimiento entre -1 y 1.
+    # Valida entradas digitales o analogicas y descarta el ruido del stick.
     @staticmethod
-    def _leer_direccion(valor: Any) -> tuple[int, int]:
+    def _leer_direccion(valor: Any) -> tuple[float, float]:
         if not isinstance(valor, dict):
             raise ValueError("Falta la entrada de un jugador.")
         dx = valor.get("x")
         dy = valor.get("y")
         if any(
-            isinstance(eje, bool) or not isinstance(eje, int) or eje not in (-1, 0, 1)
+            isinstance(eje, bool)
+            or not isinstance(eje, (int, float))
+            or not math.isfinite(eje)
+            or not -1 <= eje <= 1
             for eje in (dx, dy)
         ):
-            raise ValueError("Cada eje debe ser -1, 0 o 1.")
+            raise ValueError("Cada eje debe ser un numero finito entre -1 y 1.")
+        if math.hypot(dx, dy) <= EstadoJuego.ZONA_MUERTA:
+            return 0.0, 0.0
         return dx, dy
 
     # Lee los contadores acumulados de pulsaciones; son opcionales.
