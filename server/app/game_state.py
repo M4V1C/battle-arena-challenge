@@ -335,6 +335,19 @@ class EstadoJuego:
         with self._bloqueo:
             return self._crear_estado()
 
+        # Indica si existe una partida iniciada que todavía no ha terminado.
+    def partida_en_curso(self) -> bool:
+        with self._bloqueo:
+            return self._iniciada and not self._terminada
+
+    def ejecutar_si_no_hay_partida(self, operacion):
+        with self._bloqueo:
+            if self._iniciada and not self._terminada:
+                raise ValueError(
+                    "No se puede acceder a la configuracion mientras hay una partida en curso."
+                )
+            return operacion()
+            
     # Construye una copia serializable del estado mientras ya se posee el bloqueo.
     def _crear_estado(self) -> dict[str, Any]:
         return {

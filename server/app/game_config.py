@@ -7,8 +7,7 @@ from typing import Any
 
 
 ARCHIVO_CONFIGURACION = Path(__file__).resolve().parents[1] / "data" / "game_config.json"
-CONFIGURACION_INICIAL = {"condition": "points", "value": 20, "sensitivity": 1.0}
-
+CONFIGURACION_INICIAL = {"condition": "points","value": 20,"sensitivity": 1.0,"freeze_seconds": 3.0,}
 
 def validar_configuracion(datos: Any) -> dict[str, Any]:
     if not isinstance(datos, dict):
@@ -16,6 +15,7 @@ def validar_configuracion(datos: Any) -> dict[str, Any]:
     condicion = datos.get("condition")
     valor = datos.get("value")
     sensibilidad = datos.get("sensitivity", 1.0)
+    congelamiento = datos.get("freeze_seconds", 3.0)
     if condicion not in ("points", "time"):
         raise ValueError("La condicion debe ser points o time.")
     if isinstance(valor, bool) or not isinstance(valor, int) or valor < 1:
@@ -26,7 +26,15 @@ def validar_configuracion(datos: Any) -> dict[str, Any]:
         or not 0 < sensibilidad < float("inf")
     ):
         raise ValueError("La sensibilidad debe ser un numero positivo finito.")
-    return {"condition": condicion, "value": valor, "sensitivity": sensibilidad}
+    if (
+        isinstance(congelamiento, bool)
+        or not isinstance(congelamiento, (int, float))
+        or not 0 < congelamiento < float("inf")
+    ):
+        raise ValueError(
+            "El tiempo de congelamiento debe ser un numero positivo finito."
+        )
+    return {"condition": condicion, "value": valor, "sensitivity": sensibilidad,"freeze_seconds": float(congelamiento),}
 
 
 class AlmacenConfiguracion:

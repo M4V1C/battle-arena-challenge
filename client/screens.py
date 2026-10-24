@@ -8,7 +8,8 @@ VOLVER = pygame.Rect(ANCHO - 80, 16, 56, 48)
 MODO_PUNTOS = pygame.Rect(ANCHO // 2 - 240, 300, 240, 56)
 MODO_TIEMPO = pygame.Rect(ANCHO // 2, 300, 240, 56)
 CAMPO_VALOR = pygame.Rect(ANCHO // 2 - 240, 420, 480, 56)
-GUARDAR = pygame.Rect(ANCHO // 2 - 160, 580, 320, 64)
+CAMPO_CONGELAMIENTO = pygame.Rect(ANCHO // 2 - 240, 530, 480, 56)
+GUARDAR = pygame.Rect(ANCHO // 2 - 160, 620, 320, 64)
 
 # Función para dibujar el botón de volver en la interfaz.
 def dibujar_volver(pantalla: pygame.Surface) -> None:
@@ -30,6 +31,8 @@ class Aplicacion:
         self._conexion_config: ConexionServidor | None = None
         self._configuracion = {"condition": "points", "value": 20, "sensitivity": 1.0}
         self._valor = "20"
+        self._congelamiento = "3.0"
+        self._campo_congelamiento_activo = False
         self._campo_activo = False
         self._seleccionado = False
         self._pendiente = False
@@ -44,8 +47,8 @@ class Aplicacion:
         pygame.key.stop_text_input()
 
     def _abrir_configuracion(self) -> None:
-        self.pantalla_actual = "configuracion"
         self._confirmacion = ""
+        self.error = ""
         self._configuracion_cargada = False
         self._pendiente = True
         try:
@@ -65,17 +68,26 @@ class Aplicacion:
         guardando = self._configuracion_cargada
         self._pendiente = False
         if respuesta.get("type") == "config":
+            self.pantalla_actual = "configuracion"
             self._configuracion = respuesta["config"]
             self._valor = str(self._configuracion["value"])
+            self._congelamiento = str(self._configuracion.get("freeze_seconds", 3.0))
             self._configuracion_cargada = True
             self.error = ""
             self._confirmacion = "Configuracion guardada" if guardando else ""
         else:
             self.error = respuesta.get("message", "Respuesta de configuracion invalida")
 
+    
     def _guardar_configuracion(self) -> None:
-        if self._pendiente or not self._configuracion_cargada or self._conexion_config is None:
+        if (
+            self._pendiente
+            or not self._configuracion_cargada
+            or self._conexion_config is None
+        ):
             return
+
+        # Validar el limite de puntos o minutos.
         try:
             valor = int(self._valor)
             if valor < 1:
@@ -84,41 +96,104 @@ class Aplicacion:
             self.error = "Introduce un numero entero mayor que cero."
             self._confirmacion = ""
             return
+
+        # Validar los segundos de congelamiento.
+        try:
+            congelamiento = float(self._congelamiento)
+            if not 0 < congelamiento < float("inf"):
+                raise ValueError
+        except ValueError:
+            self.error = "El congelamiento debe ser un numero positivo."
+            self._confirmacion = ""
+            return
+
         self.error = ""
         self._confirmacion = ""
         self._pendiente = True
-        self._conexion_config.guardar_configuracion({**self._configuracion, "value": valor})
+
+        # Enviar ambos valores al servidor.
+        self._conexion_config.guardar_configuracion({
+            **self._configuracion,
+            "value": valor,
+            "freeze_seconds": congelamiento,
+        })
+
 
     def _evento_configuracion(self, evento: pygame.event.Event) -> None:
         if self._pendiente or not self._configuracion_cargada:
             return
+
         if evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:
+            # Identificar cuál campo seleccionó el usuario.
             self._campo_activo = CAMPO_VALOR.collidepoint(evento.pos)
-            self._seleccionado = self._campo_activo
-            if self._campo_activo:
+            self._campo_congelamiento_activo = CAMPO_CONGELAMIENTO.collidepoint(evento.pos)
+
+            # Al seleccionar un campo, su contenido se reemplaza
+            # cuando el usuario comienza a escribir.
+            self._seleccionado = (
+                self._campo_activo or self._campo_congelamiento_activo
+            )
+
+            if self._seleccionado:
                 pygame.key.start_text_input()
-                pygame.key.set_text_input_rect(CAMPO_VALOR)
+                campo = (
+                    CAMPO_VALOR
+                    if self._campo_activo
+                    else CAMPO_CONGELAMIENTO
+                )
+                pygame.key.set_text_input_rect(campo)
             else:
                 pygame.key.stop_text_input()
-            for rectangulo, modo in ((MODO_PUNTOS, "points"), (MODO_TIEMPO, "time")):
+
+            # Seleccionar la condición de finalización.
+            for rectangulo, modo in (
+                (MODO_PUNTOS, "points"),
+                (MODO_TIEMPO, "time"),
+            ):
                 if rectangulo.collidepoint(evento.pos):
                     self._configuracion["condition"] = modo
                     self._confirmacion = ""
+
             if GUARDAR.collidepoint(evento.pos):
                 self._guardar_configuracion()
-        elif evento.type == pygame.TEXTINPUT and self._campo_activo:
-            if all(caracter in "0123456789-" for caracter in evento.text):
-                self._valor = ("" if self._seleccionado else self._valor) + evento.text
-                self._seleccionado = False
-                self._confirmacion = ""
-        elif evento.type == pygame.KEYDOWN and self._campo_activo:
-            if evento.key == pygame.K_BACKSPACE:
-                self._valor = "" if self._seleccionado else self._valor[:-1]
-                self._seleccionado = False
-            elif evento.key == pygame.K_a and evento.mod & pygame.KMOD_CTRL:
-                self._seleccionado = True
-            elif evento.key == pygame.K_RETURN:
-                self._guardar_configuracion()
+
+        elif evento.type == pygame.TEXTINPUT:
+            if self._campo_activo:
+                if all(caracter in "0123456789" for caracter in evento.text):
+                    self._valor = (
+                        "" if self._seleccionado else self._valor
+                    ) + evento.text
+                    self._seleccionado = False
+                    self._confirmacion = ""
+
+            elif self._campo_congelamiento_activo:
+                if all(caracter in "0123456789." for caracter in evento.text):
+                    self._congelamiento = (
+                        "" if self._seleccionado else self._congelamiento
+                    ) + evento.text
+                    self._seleccionado = False
+                    self._confirmacion = ""
+
+        elif evento.type == pygame.KEYDOWN:
+            if self._campo_activo or self._campo_congelamiento_activo:
+                if evento.key == pygame.K_BACKSPACE:
+                    if self._campo_activo:
+                        self._valor = (
+                            "" if self._seleccionado else self._valor[:-1]
+                        )
+                    else:
+                        self._congelamiento = (
+                            "" if self._seleccionado
+                            else self._congelamiento[:-1]
+                        )
+                    self._seleccionado = False
+
+                elif evento.key == pygame.K_a and evento.mod & pygame.KMOD_CTRL:
+                    self._seleccionado = True
+
+                elif evento.key == pygame.K_RETURN:
+                    self._guardar_configuracion()
+
 
     # Define el botón de volver en la interfaz.
     def botones(self) -> list[tuple[pygame.Rect, str, str]]:
@@ -178,10 +253,52 @@ class Aplicacion:
         if self._seleccionado:
             pygame.draw.rect(pantalla, (75, 110, 125), CAMPO_VALOR.inflate(-8, -8))
         pantalla.blit(texto_valor, (CAMPO_VALOR.x + 14, CAMPO_VALOR.y + 14))
-        sensibilidad = fuente.render(
-            f"Sensibilidad (reservada): {self._configuracion['sensitivity']}", True, (170, 175, 185)
+        # Etiqueta del tiempo de congelamiento.
+        etiqueta_congelamiento = fuente.render(
+            "Tiempo de congelamiento (segundos)",
+            True,
+            COLOR_TEXTO
         )
-        pantalla.blit(sensibilidad, (CAMPO_VALOR.x, 510))
+        pantalla.blit(
+            etiqueta_congelamiento,
+            (CAMPO_CONGELAMIENTO.x, 490)
+        )
+
+        # Dibujar el campo de congelamiento.
+        pygame.draw.rect(
+            pantalla,
+            (45, 50, 60),
+            CAMPO_CONGELAMIENTO
+        )
+
+        # Resaltar el borde cuando el campo está activo.
+        borde_congelamiento = (
+            COLOR_TEXTO
+            if self._campo_congelamiento_activo
+            else (100, 110, 120)
+        )
+
+        pygame.draw.rect(
+            pantalla,
+            borde_congelamiento,
+            CAMPO_CONGELAMIENTO,
+            2
+        )
+
+        # Mostrar el valor configurado.
+        texto_congelamiento = fuente.render(
+            self._congelamiento[-18:] or " ",
+            True,
+            COLOR_TEXTO
+        )
+
+        pantalla.blit(
+            texto_congelamiento,
+            (
+                CAMPO_CONGELAMIENTO.x + 14,
+                CAMPO_CONGELAMIENTO.y + 14
+            )
+        )
         habilitado = self._configuracion_cargada and not self._pendiente
         pygame.draw.rect(pantalla, (65, 105, 115) if habilitado else (50, 55, 60), GUARDAR, border_radius=6)
         texto_guardar = fuente.render("Guardar" if not self._pendiente else "Esperando...", True, COLOR_TEXTO)

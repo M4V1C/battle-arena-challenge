@@ -35,14 +35,22 @@ def procesar_mensaje(
 
             ajustes = configuracion.obtener() if configuracion else CONFIGURACION_INICIAL
             respuesta = estado_juego.iniciar_partida(ajustes)
+
         elif tipo in ("get_config", "save_config"):
             if configuracion is None:
                 raise ValueError("El almacen de configuracion no esta disponible.")
-            ajustes = (
-                configuracion.guardar(mensaje.get("config"))
-                if tipo == "save_config" else configuracion.obtener()
+
+            def operar_configuracion():
+                if tipo == "save_config":
+                    return configuracion.guardar(mensaje.get("config"))
+                return configuracion.obtener()
+
+            ajustes = estado_juego.ejecutar_si_no_hay_partida(
+                operar_configuracion
             )
+
             respuesta = {"type": "config", "config": ajustes}
+   
         else:
             raise ValueError("Tipo de mensaje desconocido.")
     except (ValueError, OSError) as error:

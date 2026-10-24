@@ -41,7 +41,7 @@ def test_cualquier_jugador_puede_terminar_por_puntos(objetivo, nombre):
 def test_configuracion_del_protocolo_se_aplica_al_iniciar(tmp_path):
     almacen = AlmacenConfiguracion(tmp_path / "config.json")
     juego = EstadoJuego()
-    configuracion = {"condition": "time", "value": 2, "sensitivity": 3}
+    configuracion = {"condition": "time","value": 2,"sensitivity": 3,"freeze_seconds": 3.0,}
     respuesta = json.loads(procesar_mensaje(json.dumps({"type": "save_config", "config": configuracion}), juego, almacen))
     assert respuesta == {"type": "config", "config": configuracion}
     estado = json.loads(procesar_mensaje('{"type":"start"}', juego, almacen))
@@ -87,7 +87,10 @@ def test_cerrar_conexion_de_configuracion_no_reinicia_partida(tmp_path):
         cliente.settimeout(5)
         with cliente, cliente.makefile("r", encoding="utf-8") as lector:
             cliente.sendall(b'{"type":"get_config"}\n')
-            assert json.loads(lector.readline())["type"] == "config"
+            respuesta = json.loads(lector.readline())
+
+            assert respuesta["type"] == "error"
+            assert "partida en curso" in respuesta["message"] 
     finally:
         cliente.close()
         hilo.join(timeout=5)
