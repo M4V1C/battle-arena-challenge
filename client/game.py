@@ -6,6 +6,7 @@ from keybindings import cargar_keybindings
 from network import ConexionServidor
 from avatar_repository import RepositorioAvatares
 from avatar_renderer import RenderizadorAvatares
+from victory_screen import PantallaVictoria
 
 ANCHO, ALTO = 1600, 900             # Dimensiones de la ventana de juego
 TAMANO_JUGADOR = 40                 # Tamaño visual de cada jugador en la ventana
@@ -83,7 +84,11 @@ class Juego:
                     if respuesta.get("type") == "state":
                         self._estado = respuesta
                         if respuesta.get("match", {}).get("finished"):
-                            return True
+                            pantalla_victoria = PantallaVictoria(
+                                estado=self._estado,
+                                avatares=self._avatares,
+                            )
+                            return pantalla_victoria.ejecutar()
                     elif respuesta.get("type") == "error":
                         self._mensaje = f"Error de conexión: {respuesta.get('message', '')}"
 
