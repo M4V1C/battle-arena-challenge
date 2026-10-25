@@ -1,0 +1,18 @@
+[
+    {
+        "usuario": "AndrewInsano",
+        "correo": "andrewbp32@gmail.com",
+        "contrasena_sal": "853385819d128d95bb3a0636abec98fc",
+        "contrasena_hash": "1af0e7615118b1696fad34722777ea613d48b5d40d332b6a40699e323523cf19",
+        "avatar": "default",
+        "correo_verificado": true
+    },
+    {
+        "usuario": "TEC",
+        "correo": "a.barquero.6@estudiantec.cr",
+        "contrasena_sal": "c797b8b5cc5fbc2d5635ea3dc5a0ed1e",
+        "contrasena_hash": "e02c4d0d391cdcf9124fd43009eb9a36cd13a8c643e3d2b0f228575418903381",
+        "avatar": "default",
+        "correo_verificado": true
+    }
+]
