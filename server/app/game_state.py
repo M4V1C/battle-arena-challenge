@@ -9,7 +9,7 @@ from app.game_config import CONFIGURACION_INICIAL, validar_configuracion
 
 ACCIONES = ("shoot", "interact")
 
-# Posición actual de un jugador dentro de la arena
+# PosiciÃ³n actual de un jugador dentro de la arena
 @dataclass
 class Jugador:
     x: float
@@ -21,7 +21,7 @@ class Jugador:
     mov_y: float = 0.0
     tiempo_interaccion: float = 0.0
     puntos: int = 0
-    # Último contador de pulsaciones procesado por acción.
+    # Ãšltimo contador de pulsaciones procesado por acciÃ³n.
     contadores: dict[str, int] = field(default_factory=lambda: dict.fromkeys(ACCIONES, 0))
 
 
@@ -34,7 +34,7 @@ class Proyectil:
     dueno: str
 
 
-# Rectángulo estático que bloquea el paso de los jugadores.
+# RectÃ¡ngulo estÃ¡tico que bloquea el paso de los jugadores.
 @dataclass(frozen=True)
 class Obstaculo:
     x: float
@@ -43,7 +43,7 @@ class Obstaculo:
     alto: float
 
     def colisiona(self, x: float, y: float, tamano: float) -> bool:
-        # Tocar el borde no cuenta como colisión, así el jugador puede deslizarse.
+        # Tocar el borde no cuenta como colisiÃ³n, asÃ­ el jugador puede deslizarse.
         return (
             x < self.x + self.ancho
             and x + tamano > self.x
@@ -51,7 +51,7 @@ class Obstaculo:
             and y + tamano > self.y
         )
 
-# Obstáculos iniciales en la arena.
+# ObstÃ¡culos iniciales en la arena.
 MAPA_INICIAL = (
     Obstaculo(300, 250, 200, 40),
     Obstaculo(900, 150, 40, 300),
@@ -64,12 +64,12 @@ class EstadoJuego:
 
     ANCHO = 1600                          # Ancho de la arena.
     ALTO = 900                            # Alto de la arena.
-    TAMANO_JUGADOR = 40                   # Tamaño del hitbox de los jugadores.
+    TAMANO_JUGADOR = 40                   # TamaÃ±o del hitbox de los jugadores.
     VELOCIDAD = 240.0                     # Velocidad de los jugadores en unidades por segundo.
-    TAMANO_PROYECTIL = 8                  # Tamaño del hitbox de los proyectiles.
+    TAMANO_PROYECTIL = 8                  # TamaÃ±o del hitbox de los proyectiles.
     VELOCIDAD_PROYECTIL = 900.0           # Velocidad de los proyectiles en unidades por segundo.
-    DURACION_INTERACCION = 0.15           # Duración en segundos de la interacción con el reactor.
-    RADIO_REACTOR = 1.5 * TAMANO_JUGADOR  # Anillo de diámetro 3x el hitbox.
+    DURACION_INTERACCION = 0.15           # DuraciÃ³n en segundos de la interacciÃ³n con el reactor.
+    RADIO_REACTOR = 1.5 * TAMANO_JUGADOR  # Anillo de diÃ¡metro 3x el hitbox.
     INTERVALO_PUNTO = 0.5
     VELOCIDAD_GIRO = math.radians(360)
     ZONA_MUERTA = 0.15
@@ -84,11 +84,11 @@ class EstadoJuego:
             self.TAMANO_JUGADOR,
             self.TAMANO_JUGADOR,
         )
-        # El reactor es sólido para jugadores y disparos.
+        # El reactor es sÃ³lido para jugadores y disparos.
         self._solidos = self._obstaculos + (self._reactor,)
         self._operador_reactor: str | None = None
         self._tiempo_reactor = 0.0
-        # El bloqueo hace atómicas las actualizaciones concurrentes recibidas
+        # El bloqueo hace atÃ³micas las actualizaciones concurrentes recibidas
         # por los hilos que atienden conexiones TCP.
         self._bloqueo = threading.Lock()
         self._reiniciar_estado()
@@ -103,6 +103,8 @@ class EstadoJuego:
         with self._bloqueo:
             self._configuracion = configuracion
             self._reiniciar_estado()
+            if configuracion["condition"] == "time":
+                self._limite_tiempo = configuracion["value"] * 60
             self._iniciada = True
             return self._crear_estado()
 
@@ -110,7 +112,10 @@ class EstadoJuego:
     def _reiniciar_estado(self) -> None:
         self._iniciada = False
         self._terminada = False
+        self._ganador = None
         self._tiempo_partida = 0.0
+        self._prorrogas = 0
+        self._limite_tiempo = None
         self._operador_reactor = None
         self._tiempo_reactor = 0.0
         self._jugadores = {
@@ -122,14 +127,33 @@ class EstadoJuego:
             ),
         }
         self._proyectiles: list[Proyectil] = []
-        # El servidor conserva la última dirección recibida y simula el
+        # El servidor conserva la Ãºltima direcciÃ³n recibida y simula el
         # movimiento a una frecuencia fija, independiente de los paquetes.
         self._entradas = {
             "red": (0, 0),
             "blue": (0, 0),
         }
 
-    # Valida y guarda las entradas más recientes de ambos jugadores.
+    def _iniciar_prorroga(self) -> None:
+        puntos = {
+            nombre: jugador.puntos
+            for nombre, jugador in self._jugadores.items()
+        }
+
+        tiempo = self._tiempo_partida
+        prorrogas = self._prorrogas + 1
+
+        self._reiniciar_estado()
+
+        for nombre, puntaje in puntos.items():
+            self._jugadores[nombre].puntos = puntaje
+
+        self._tiempo_partida = tiempo
+        self._prorrogas = prorrogas
+        self._limite_tiempo = tiempo + 120
+        self._iniciada = True
+
+    # Valida y guarda las entradas mÃ¡s recientes de ambos jugadores.
     def actualizar_entradas(self, entradas: Any) -> dict[str, Any]:
         if not isinstance(entradas, dict):
             raise ValueError("Las entradas deben ser un objeto JSON.")
@@ -153,7 +177,7 @@ class EstadoJuego:
                 magnitud = math.hypot(dx, dy)
                 jugador.mov_x = dx / magnitud if magnitud else 0.0
                 jugador.mov_y = dy / magnitud if magnitud else 0.0
-                # Los contadores son acumulativos: una pulsación no se pierde
+                # Los contadores son acumulativos: una pulsaciÃ³n no se pierde
                 # aunque el cliente descarte mensajes intermedios.
                 for accion, contador in acciones[nombre].items():
                     if contador > jugador.contadores[accion]:
@@ -161,7 +185,7 @@ class EstadoJuego:
                     jugador.contadores[accion] = contador
             return self._crear_estado()
 
-    # Ejecuta la acción correspondiente a un jugador, como interactuar con el reactor o disparar.
+    # Ejecuta la acciÃ³n correspondiente a un jugador, como interactuar con el reactor o disparar.
     def _ejecutar_accion(self, nombre: str, accion: str) -> None:
         jugador = self._jugadores[nombre]
         if accion == "interact":
@@ -183,7 +207,7 @@ class EstadoJuego:
                 )
             )
 
-    # Verifica si un jugador está dentro del rango de interacción con el reactor.
+    # Verifica si un jugador estÃ¡ dentro del rango de interacciÃ³n con el reactor.
     def _en_rango_reactor(self, jugador: Jugador) -> bool:
         mitad = self.TAMANO_JUGADOR / 2
         return math.hypot(
@@ -199,7 +223,7 @@ class EstadoJuego:
             or not math.isfinite(delta_t)
             or delta_t < 0
         ):
-            raise ValueError("delta_t debe ser un número no negativo.")
+            raise ValueError("delta_t debe ser un nÃºmero no negativo.")
 
     # Simula el avance del juego durante un intervalo de tiempo delta_t, actualizando posiciones, proyectiles y el estado del reactor.
         with self._bloqueo:
@@ -207,8 +231,11 @@ class EstadoJuego:
                 return self._crear_estado()
             condicion = self._configuracion["condition"]
             limite = self._configuracion["value"]
-            if condicion == "time":
-                delta_t = min(delta_t, max(0.0, limite * 60 - self._tiempo_partida))
+            if condicion == "time" or self._prorrogas > 0:
+                delta_t = min(
+                    delta_t,
+                    max(0.0, self._limite_tiempo - self._tiempo_partida)
+                )
             elif self._operador_reactor is not None:
                 restantes = limite - self._jugadores[self._operador_reactor].puntos
                 delta_t = min(delta_t, max(0.0, restantes * self.INTERVALO_PUNTO - self._tiempo_reactor))
@@ -227,11 +254,28 @@ class EstadoJuego:
             self._proyectiles = [
                 p for p in self._proyectiles if self._mover_proyectil(p, delta_t)
             ]
-            self._terminada = (
-                self._tiempo_partida + 1e-9 >= limite * 60
-                if condicion == "time"
-                else any(jugador.puntos >= limite for jugador in self._jugadores.values())
+            limite_alcanzado = (
+                self._tiempo_partida + 1e-9 >= self._limite_tiempo
+                if condicion == "time" or self._prorrogas > 0
+                else any(
+                    jugador.puntos >= limite
+                    for jugador in self._jugadores.values()
+                )
             )
+
+            if limite_alcanzado:
+                rojo = self._jugadores["red"].puntos
+                azul = self._jugadores["blue"].puntos
+
+                if rojo > azul:
+                    self._ganador = "red"
+                    self._terminada = True
+                elif azul > rojo:
+                    self._ganador = "blue"
+                    self._terminada = True
+                else:
+                    self._iniciar_prorroga()
+
             return self._crear_estado()
 
     def _mover_girando(self, jugador: Jugador, intensidad: float, delta_t: float) -> None:
@@ -273,11 +317,11 @@ class EstadoJuego:
             self._mover_x(jugador, jugador.dir_x * distancia / pasos)
             self._mover_y(jugador, jugador.dir_y * distancia / pasos)
 
-    # Avanza un proyectil y devuelve False si chocó con algo o salió del mapa.
+    # Avanza un proyectil y devuelve False si chocÃ³ con algo o saliÃ³ del mapa.
     def _mover_proyectil(self, proyectil: Proyectil, delta_t: float) -> bool:
         tamano = self.TAMANO_PROYECTIL
         distancia = math.hypot(proyectil.vx, proyectil.vy) * delta_t
-        # Subpasos del tamaño del proyectil para no atravesar paredes.
+        # Subpasos del tamaÃ±o del proyectil para no atravesar paredes.
         pasos = max(1, math.ceil(distancia / tamano))
         for _ in range(pasos):
             proyectil.x += proyectil.vx * delta_t / pasos
@@ -297,8 +341,8 @@ class EstadoJuego:
                 ).colisiona(proyectil.x, proyectil.y, tamano):
                     return False
         return True
-    
-    # Mueve al jugador en la dirección x, manejando colisiones con los límites del mapa y obstáculos sólidos.
+
+    # Mueve al jugador en la direcciÃ³n x, manejando colisiones con los lÃ­mites del mapa y obstÃ¡culos sÃ³lidos.
     def _mover_x(self, jugador: Jugador, delta: float) -> None:
         tamano = self.TAMANO_JUGADOR
         jugador.x = min(max(jugador.x + delta, 0), self.ANCHO - tamano)
@@ -309,7 +353,7 @@ class EstadoJuego:
                 else:
                     jugador.x = obstaculo.x + obstaculo.ancho
 
-    # Mueve al jugador en la dirección y, manejando colisiones con los límites del mapa y obstáculos sólidos.
+    # Mueve al jugador en la direcciÃ³n y, manejando colisiones con los lÃ­mites del mapa y obstÃ¡culos sÃ³lidos.
     def _mover_y(self, jugador: Jugador, delta: float) -> None:
         tamano = self.TAMANO_JUGADOR
         jugador.y = min(max(jugador.y + delta, 0), self.ALTO - tamano)
@@ -320,7 +364,7 @@ class EstadoJuego:
                 else:
                     jugador.y = obstaculo.y + obstaculo.alto
 
-    # Detiene a los jugadores al perderse la conexión del cliente, reiniciando sus entradas y contadores.
+    # Detiene a los jugadores al perderse la conexiÃ³n del cliente, reiniciando sus entradas y contadores.
     def detener_movimiento(self) -> None:
         with self._bloqueo:
             self._entradas = {nombre: (0, 0) for nombre in self._jugadores}
@@ -348,6 +392,9 @@ class EstadoJuego:
                 "elapsed": self._tiempo_partida,
                 "condition": self._configuracion["condition"],
                 "value": self._configuracion["value"],
+                "winner": self._ganador,
+                "time_limit": self._limite_tiempo,
+                "overtime": self._prorrogas,
             },
             "players": {
                 nombre: {
