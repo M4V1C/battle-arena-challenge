@@ -4,6 +4,7 @@ import random
 from pathlib import Path
 
 import pygame
+import math
 
 from avatar_renderer import RenderizadorAvatares
 
@@ -24,6 +25,29 @@ MUSICA_VICTORIA = (
     / "victory.wav"
 )
 
+FONDO_VICTORIA = (
+    Path(__file__).resolve().parent
+    / "assets"
+    / "images"
+    / "victory_background.png"
+)
+
+def dibujar_estrella(pantalla, x, y, color, radio):
+    """Dibuja una estrella de cinco puntas."""
+
+    puntos = []
+
+    for i in range(10):
+        angulo = math.pi * i / 5 - math.pi / 2
+
+        distancia = radio if i % 2 == 0 else radio * 0.45
+
+        punto_x = x + math.cos(angulo) * distancia
+        punto_y = y + math.sin(angulo) * distancia
+
+        puntos.append((int(punto_x), int(punto_y)))
+
+    pygame.draw.polygon(pantalla, color, puntos)
 
 class PantallaVictoria:
     """Presenta al ganador y los resultados finales."""
@@ -40,12 +64,22 @@ class PantallaVictoria:
         self._puntos_rojo = jugadores.get("red", {}).get("score", 0)
         self._puntos_azul = jugadores.get("blue", {}).get("score", 0)
 
+        colores_estrellas = [
+            (255, 215, 80),   # Dorado
+            (255, 100, 180),  # Rosa
+            (100, 220, 255),  # Celeste
+            (180, 120, 255),  # Violeta
+            (120, 255, 180),  # Verde
+            (255, 255, 255),  # Blanco
+        ]
+
         self._confeti = [
             (
                 random.randint(0, ANCHO),
                 random.randint(0, ALTO),
-                random.choice((DORADO, ROJO, AZUL, BLANCO)),
-                random.randint(2, 6),
+                random.choice(colores_estrellas),
+                random.randint(2, 5),
+                random.randint(5, 11),
             )
             for _ in range(90)
         ]
@@ -55,6 +89,12 @@ class PantallaVictoria:
 
         pantalla = pygame.display.set_mode((ANCHO, ALTO))
         pygame.display.set_caption("Battle Arena - Victoria")
+
+        fondo_espacial = pygame.image.load(str(FONDO_VICTORIA)).convert()
+        fondo_espacial = pygame.transform.smoothscale(
+            fondo_espacial,
+            (ANCHO, ALTO),
+        )
 
         fuente_titulo = pygame.font.SysFont(None, 90)
         fuente_texto = pygame.font.SysFont(None, 48)
@@ -99,27 +139,36 @@ class PantallaVictoria:
                             pygame.mixer.music.stop()
                         return True
 
-            pantalla.fill(FONDO)
+            pantalla.blit(fondo_espacial, (0, 0))
 
-            # Confeti animado.
+            # Lluvia de estrellas de colores.
             nuevo_confeti = []
 
-            for x, y, color, velocidad in self._confeti:
-                pygame.draw.circle(pantalla, color, (x, y), 4)
+            for x, y, color, velocidad, tamano in self._confeti:
+
+                dibujar_estrella(
+                    pantalla,
+                    x,
+                    y,
+                    color,
+                    tamano,
+                )
 
                 y += velocidad
 
-                if y > ALTO:
-                    y = 0
+                if y > ALTO + tamano:
+                    y = -tamano
                     x = random.randint(0, ANCHO)
 
-                nuevo_confeti.append((x, y, color, velocidad))
+                nuevo_confeti.append(
+                    (x, y, color, velocidad, tamano)
+                )
 
             self._confeti = nuevo_confeti
 
             if self._ganador in ("red", "blue"):
                 nombre = "ROJO" if self._ganador == "red" else "AZUL"
-                mensaje = f"¡FELICIDADES, JUGADOR {nombre}!"
+                mensaje = f"¡{nombre}!"
 
                 titulo = fuente_titulo.render(mensaje, True, DORADO)
                 pantalla.blit(
@@ -152,8 +201,8 @@ class PantallaVictoria:
 
             # Resultados finales.
             resultados = [
-                (f"Jugador rojo: {self._puntos_rojo} puntos", ROJO),
-                (f"Jugador azul: {self._puntos_azul} puntos", AZUL),
+                (f"Jugador rojo: {self._puntos_rojo} puntos", DORADO),
+                (f"Jugador azul: {self._puntos_azul} puntos", DORADO),
             ]
 
             for indice, (texto, color) in enumerate(resultados):
