@@ -1,0 +1,37 @@
+[
+    {
+        "usuario": "AndrewInsano",
+        "correo": "andrewbp32@gmail.com",
+        "contrasena_sal": "853385819d128d95bb3a0636abec98fc",
+        "contrasena_hash": "1af0e7615118b1696fad34722777ea613d48b5d40d332b6a40699e323523cf19",
+        "avatar": "default",
+        "correo_verificado": true
+    },
+    {
+        "usuario": "TEC",
+        "correo": "a.barquero.6@estudiantec.cr",
+        "contrasena_sal": "c797b8b5cc5fbc2d5635ea3dc5a0ed1e",
+        "contrasena_hash": "e02c4d0d391cdcf9124fd43009eb9a36cd13a8c643e3d2b0f228575418903381",
+        "avatar": "default",
+        "correo_verificado": true
+    },
+    {
+        "usuario": "Holi",
+        "correo": "englisandrew489@gmail.com",
+        "contrasena_sal": "9bd2d03cd6553d93b61e16dbe63147b6",
+        "contrasena_hash": "d998ca302ad131081292c05c142e0ddd37fc90e6f6a9ad8b1d70b49b9617f4be",
+        "correo_verificado": true,
+        "avatar": "default",
+        "fecha_registro": "25/10/2026",
+        "estadisticas": {
+            "partidas_jugadas": 0,
+            "victorias": 0,
+            "derrotas": 0,
+            "puntaje_total": 0,
+            "mejor_puntaje": 0,
+            "tiempo_total_seg": 0
+        },
+        "logros": [],
+        "historial": []
+    }
+]
