@@ -24,8 +24,10 @@ INTERVALO_ENTRADAS = 1 / 60         # Intervalo de tiempo entre envíos de entra
 class Juego:
 
     # Inicializa la conexión con el servidor y el estado visual del juego.
-    def __init__(self, host: str, port: int):
+    def __init__(self,host: str,port: int,jugador_rojo: str | None = None,jugador_azul: str | None = None,):
         self._conexion = ConexionServidor(host, port)
+        self._nombres = {"red": jugador_rojo or "Rojo","blue": jugador_azul or "Azul",
+}
         self._estado = {
             "players": {
                 "red": {"x": 100, "y": 100, "dir_x": 1, "dir_y": 0},
@@ -39,6 +41,46 @@ class Juego:
         self._teclas: dict[str, dict[str, int]] = {}
         self._mensaje = f"Servidor: {host}:{port}"
 
+    def _registrar_resultado(self) -> None:
+        """Guarda las estadísticas de ambos jugadores al terminar la partida."""
+    
+        from perfil_datos import registrar_partida
+    
+        jugadores = self._estado.get("players", {})
+        partida = self._estado.get("match", {})
+
+        rojo = jugadores.get("red", {})
+        azul = jugadores.get("blue", {})
+
+        puntos_rojo = int(rojo.get("score", 0))
+        puntos_azul = int(azul.get("score", 0))
+        duracion = int(partida.get("elapsed", 0))
+
+        # No registrar resultados sin dos cuentas autenticadas.
+        if not self._nombres["red"] or not self._nombres["blue"]:
+            return
+
+        # El sistema de perfiles todavía no admite empates.
+        if puntos_rojo == puntos_azul:
+            return
+
+        resultado_rojo = "victoria" if puntos_rojo > puntos_azul else "derrota"
+        resultado_azul = "victoria" if puntos_azul > puntos_rojo else "derrota"
+
+        registrar_partida(
+            self._nombres["red"],
+            resultado_rojo,
+            puntos_rojo,
+            duracion,
+        )
+
+        registrar_partida(
+            self._nombres["blue"],
+            resultado_azul,
+            puntos_azul,
+            duracion,
+        )
+        
     # Ejecuta el ciclo principal de Pygame y gestiona la comunicación con el servidor.
     def ejecutar(self) -> bool:
         from screens import VOLVER, dibujar_volver
@@ -78,6 +120,7 @@ class Juego:
                     if respuesta.get("type") == "state":
                         self._estado = respuesta
                         if respuesta.get("match", {}).get("finished"):
+                            self._registrar_resultado()
                             return True
                     elif respuesta.get("type") == "error":
                         self._mensaje = f"Error de conexión: {respuesta.get('message', '')}"
@@ -175,9 +218,10 @@ class Juego:
         pantalla.blit(texto, (20, ALTO - 35))
 
         x = 20
-        for nombre, etiqueta in (("red", "Rojo"), ("blue", "Azul")):
+        for nombre in ("red", "blue"):
             puntos = jugadores.get(nombre, {}).get("score", 0)
-            marcador = fuente.render(f"{etiqueta}: {puntos}", True, colores[nombre])
+            etiqueta = self._nombres[nombre]
+            marcador = fuente.render(f"{etiqueta}: {puntos}", True, colores[nombre]) 
             pantalla.blit(marcador, (x, 15))
             x += marcador.get_width() + 40
 
