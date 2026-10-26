@@ -4,6 +4,9 @@ import pygame
 
 from keybindings import cargar_keybindings
 from network import ConexionServidor
+from avatar_repository import RepositorioAvatares
+from avatar_renderer import RenderizadorAvatares
+from victory_screen import PantallaVictoria
 
 ANCHO, ALTO = 1600, 900             # Dimensiones de la ventana de juego
 TAMANO_JUGADOR = 40                 # Tamaño visual de cada jugador en la ventana
@@ -40,6 +43,9 @@ class Juego:
         }
         self._teclas: dict[str, dict[str, int]] = {}
         self._mensaje = f"Servidor: {host}:{port}"
+
+        self._avatares = RepositorioAvatares().obtener()
+        self._renderizador_avatares = RenderizadorAvatares()
 
     def _registrar_resultado(self) -> None:
         """Guarda las estadísticas de ambos jugadores al terminar la partida."""
@@ -121,7 +127,12 @@ class Juego:
                         self._estado = respuesta
                         if respuesta.get("match", {}).get("finished"):
                             self._registrar_resultado()
-                            return True
+
+                            pantalla_victoria = PantallaVictoria(
+                                estado=self._estado,
+                                avatares=self._avatares,
+                            )
+                            return pantalla_victoria.ejecutar()
                     elif respuesta.get("type") == "error":
                         self._mensaje = f"Error de conexión: {respuesta.get('message', '')}"
 
@@ -185,7 +196,7 @@ class Juego:
                 jugador["y"] + TAMANO_JUGADOR / 2,
             )
             direccion = pygame.Vector2(jugador.get("dir_x", 1), jugador.get("dir_y", 0))
-            self._dibujar_flecha(pantalla, centro, direccion, color)
+            self._renderizador_avatares.dibujar(pantalla=pantalla,centro=centro,direccion=direccion,avatar=self._avatares.get(nombre, "avatar_1"), tamano=TAMANO_JUGADOR,)
             deseada = pygame.Vector2(jugador.get("move_x", 0), jugador.get("move_y", 0))
             if deseada.length_squared():
                 deseada = deseada.normalize()

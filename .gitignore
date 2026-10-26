@@ -60,3 +60,9 @@ $RECYCLE.BIN/
 docker-compose.override.yml
 docker-compose.*.override.yml
 docker-data/
+
+# Imágenes personalizadas de los jugadores
+client/data/custom_avatars/
+
+# Selecciones locales de avatares
+client/data/avatars.json
