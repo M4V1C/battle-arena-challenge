@@ -52,9 +52,10 @@ def dibujar_estrella(pantalla, x, y, color, radio):
 class PantallaVictoria:
     """Presenta al ganador y los resultados finales."""
 
-    def __init__(self, estado: dict, avatares: dict[str, str]):
+    def __init__(self, estado: dict, avatares: dict[str, str],nombres: dict[str, str],):
         self._estado = estado
         self._avatares = avatares
+        self._nombres = nombres
         self._renderizador = RenderizadorAvatares()
 
         partida = estado.get("match", {})
@@ -167,7 +168,7 @@ class PantallaVictoria:
             self._confeti = nuevo_confeti
 
             if self._ganador in ("red", "blue"):
-                nombre = "ROJO" if self._ganador == "red" else "AZUL"
+                nombre = self._nombres.get(self._ganador, "Jugador")
                 mensaje = f"¡{nombre}!"
 
                 titulo = fuente_titulo.render(mensaje, True, DORADO)
@@ -201,8 +202,8 @@ class PantallaVictoria:
 
             # Resultados finales.
             resultados = [
-                (f"Jugador rojo: {self._puntos_rojo} puntos", DORADO),
-                (f"Jugador azul: {self._puntos_azul} puntos", DORADO),
+                (f"{self._nombres['red']}: {self._puntos_rojo} puntos", DORADO),
+                (f"{self._nombres['blue']}: {self._puntos_azul} puntos", DORADO),
             ]
 
             for indice, (texto, color) in enumerate(resultados):

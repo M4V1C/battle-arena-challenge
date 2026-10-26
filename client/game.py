@@ -128,10 +128,7 @@ class Juego:
                         if respuesta.get("match", {}).get("finished"):
                             self._registrar_resultado()
 
-                            pantalla_victoria = PantallaVictoria(
-                                estado=self._estado,
-                                avatares=self._avatares,
-                            )
+                            pantalla_victoria = PantallaVictoria(estado=self._estado,avatares=self._avatares, nombres=self._nombres,)
                             return pantalla_victoria.ejecutar()
                     elif respuesta.get("type") == "error":
                         self._mensaje = f"Error de conexión: {respuesta.get('message', '')}"
@@ -237,15 +234,34 @@ class Juego:
             x += marcador.get_width() + 40
 
         partida = self._estado.get("match")
+
         if partida is not None:
-            if partida["condition"] == "time":
-                segundos = max(0, int(partida["value"] * 60 - partida["elapsed"] + 0.999))
-                limite = f"Tiempo: {segundos // 60}:{segundos % 60:02d}"
+            prorrogas = partida.get("overtime", 0)
+
+            if partida["condition"] == "time" or prorrogas > 0:
+                tiempo_limite = partida.get("time_limit")
+
+                if tiempo_limite is None:
+                    tiempo_limite = partida["value"] * 60
+
+                segundos = max(
+                    0,
+                    int(tiempo_limite - partida["elapsed"] + 0.999)
+                )
+
+                if prorrogas > 0:
+                    limite = f"Prorroga {prorrogas}: {segundos // 60}:{segundos % 60:02d}"
+                else:
+                    limite = f"Tiempo: {segundos // 60}:{segundos % 60:02d}"
+
             else:
                 limite = f"Objetivo: {partida['value']} puntos"
-            texto_limite = fuente.render(limite, True, COLOR_TEXTO)
-            pantalla.blit(texto_limite, texto_limite.get_rect(midtop=(ANCHO // 2, 15)))
 
+            texto_limite = fuente.render(limite, True, COLOR_TEXTO)
+            pantalla.blit(
+                texto_limite,
+                texto_limite.get_rect(midtop=(ANCHO // 2, 15))
+            )
     # Dibuja una flecha centrada en el jugador que apunta según su vector de dirección.
     @staticmethod
     def _dibujar_flecha(

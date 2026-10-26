@@ -20,13 +20,17 @@ class PantallaAvatares:
     
     """Gestiona la presentación y selección de avatares."""
 
-    def __init__(self, repositorio: RepositorioAvatares):
+    def __init__(self,repositorio: RepositorioAvatares,nombres: dict[str, str],):
         self._repositorio = repositorio
+        self._nombres = nombres
         self._selecciones = repositorio.obtener()
         self._jugador_actual = "red"
         self._opciones: list[tuple[pygame.Rect, str]] = []
         self._boton_importar = pygame.Rect(650, 600, 300, 55)
         self._mensaje = ""
+
+    def actualizar_nombres(self, nombres: dict[str, str]) -> None:
+        self._nombres = nombres
 
     def procesar_evento(self, evento: pygame.event.Event) -> None:
         """Procesa la selección de jugador y avatar."""
@@ -76,10 +80,13 @@ class PantallaAvatares:
     def dibujar(self, pantalla: pygame.Surface, fuente: pygame.font.Font) -> None:
         """Dibuja las opciones disponibles y la selección actual."""
       
-        for jugador, texto, x in (
-            ("red", "Jugador rojo", 460),
-            ("blue", "Jugador azul", 800),
+        for jugador, x in (
+            ("red", 460),
+            ("blue", 800),
         ):
+            texto = self._nombres.get(jugador) or (
+                "Jugador 1" if jugador == "red" else "Jugador 2"
+            )
             rectangulo = pygame.Rect(x, 240, 300, 55)
             activo = jugador == self._jugador_actual
             color = (90, 110, 135) if activo else (45, 50, 65)
@@ -117,10 +124,10 @@ class PantallaAvatares:
             )
 
         for indice, jugador in enumerate(("red", "blue")):
-            texto = (
-                f"Jugador {'rojo' if jugador == 'red' else 'azul'}: "
-                f"{self._selecciones[jugador]}"
+            nombre = self._nombres.get(jugador) or (
+                "Jugador 1" if jugador == "red" else "Jugador 2"
             )
+            texto = f"{nombre}: {self._selecciones[jugador]}"
             etiqueta = fuente.render(texto, True, (240, 240, 240))
             pantalla.blit(etiqueta, (490, 690 + indice * 40))
 

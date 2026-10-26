@@ -40,7 +40,7 @@ class Aplicacion:
         self._pendiente = False
         self._configuracion_cargada = False
         self._confirmacion = ""
-        self._pantalla_avatares = PantallaAvatares(RepositorioAvatares())
+        self._pantalla_avatares = PantallaAvatares(RepositorioAvatares(),{"red": self.usuarios.jugador_rojo,"blue": self.usuarios.jugador_azul,},)
 
     def _cerrar_configuracion(self) -> None:
         if self._conexion_config is not None:
@@ -159,6 +159,10 @@ class Aplicacion:
         ]
 
     def _iniciar_juego(self):
+        self._pantalla_avatares.actualizar_nombres({
+            "red": self.usuarios.jugador_rojo,
+            "blue": self.usuarios.jugador_azul,
+        })
         try:
             self.activa = Juego(
                 self.host,
@@ -219,6 +223,12 @@ class Aplicacion:
                     elif destino == "perfil":
                         self.usuarios.abrir_perfil()
                         self.pantalla_actual = "perfil"
+                    elif destino == "avatares":
+                        self._pantalla_avatares.actualizar_nombres({
+                            "red": self.usuarios.jugador_rojo or self.usuarios.usuario or "Jugador 1",
+                            "blue": self.usuarios.jugador_azul or "Jugador 2",
+                        })
+                        self.pantalla_actual = "avatares"
                     else:
                         self.pantalla_actual = destino
                     return
