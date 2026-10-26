@@ -4,6 +4,9 @@ import pygame
 
 from keybindings import cargar_keybindings
 from network import ConexionServidor
+from avatar_repository import RepositorioAvatares
+from avatar_renderer import RenderizadorAvatares
+from victory_screen import PantallaVictoria
 
 ANCHO, ALTO = 1600, 900             # Dimensiones de la ventana de juego
 TAMANO_JUGADOR = 40                 # Tamaño visual de cada jugador en la ventana
@@ -24,8 +27,10 @@ INTERVALO_ENTRADAS = 1 / 60         # Intervalo de tiempo entre envíos de entra
 class Juego:
 
     # Inicializa la conexión con el servidor y el estado visual del juego.
-    def __init__(self, host: str, port: int):
+    def __init__(self,host: str,port: int,jugador_rojo: str | None = None,jugador_azul: str | None = None,):
         self._conexion = ConexionServidor(host, port)
+        self._nombres = {"red": jugador_rojo or "Rojo","blue": jugador_azul or "Azul",
+}
         self._estado = {
             "players": {
                 "red": {"x": 100, "y": 100, "dir_x": 1, "dir_y": 0},
@@ -39,6 +44,49 @@ class Juego:
         self._teclas: dict[str, dict[str, int]] = {}
         self._mensaje = f"Servidor: {host}:{port}"
 
+        self._avatares = RepositorioAvatares().obtener()
+        self._renderizador_avatares = RenderizadorAvatares()
+
+    def _registrar_resultado(self) -> None:
+        """Guarda las estadísticas de ambos jugadores al terminar la partida."""
+    
+        from perfil_datos import registrar_partida
+    
+        jugadores = self._estado.get("players", {})
+        partida = self._estado.get("match", {})
+
+        rojo = jugadores.get("red", {})
+        azul = jugadores.get("blue", {})
+
+        puntos_rojo = int(rojo.get("score", 0))
+        puntos_azul = int(azul.get("score", 0))
+        duracion = int(partida.get("elapsed", 0))
+
+        # No registrar resultados sin dos cuentas autenticadas.
+        if not self._nombres["red"] or not self._nombres["blue"]:
+            return
+
+        # El sistema de perfiles todavía no admite empates.
+        if puntos_rojo == puntos_azul:
+            return
+
+        resultado_rojo = "victoria" if puntos_rojo > puntos_azul else "derrota"
+        resultado_azul = "victoria" if puntos_azul > puntos_rojo else "derrota"
+
+        registrar_partida(
+            self._nombres["red"],
+            resultado_rojo,
+            puntos_rojo,
+            duracion,
+        )
+
+        registrar_partida(
+            self._nombres["blue"],
+            resultado_azul,
+            puntos_azul,
+            duracion,
+        )
+        
     # Ejecuta el ciclo principal de Pygame y gestiona la comunicación con el servidor.
     def ejecutar(self) -> bool:
         from screens import VOLVER, dibujar_volver
@@ -78,7 +126,10 @@ class Juego:
                     if respuesta.get("type") == "state":
                         self._estado = respuesta
                         if respuesta.get("match", {}).get("finished"):
-                            return True
+                            self._registrar_resultado()
+
+                            pantalla_victoria = PantallaVictoria(estado=self._estado,avatares=self._avatares, nombres=self._nombres,)
+                            return pantalla_victoria.ejecutar()
                     elif respuesta.get("type") == "error":
                         self._mensaje = f"Error de conexión: {respuesta.get('message', '')}"
 
@@ -142,7 +193,7 @@ class Juego:
                 jugador["y"] + TAMANO_JUGADOR / 2,
             )
             direccion = pygame.Vector2(jugador.get("dir_x", 1), jugador.get("dir_y", 0))
-            self._dibujar_flecha(pantalla, centro, direccion, color)
+            self._renderizador_avatares.dibujar(pantalla=pantalla,centro=centro,direccion=direccion,avatar=self._avatares.get(nombre, "avatar_1"), tamano=TAMANO_JUGADOR,)
             deseada = pygame.Vector2(jugador.get("move_x", 0), jugador.get("move_y", 0))
             if deseada.length_squared():
                 deseada = deseada.normalize()
@@ -175,22 +226,42 @@ class Juego:
         pantalla.blit(texto, (20, ALTO - 35))
 
         x = 20
-        for nombre, etiqueta in (("red", "Rojo"), ("blue", "Azul")):
+        for nombre in ("red", "blue"):
             puntos = jugadores.get(nombre, {}).get("score", 0)
-            marcador = fuente.render(f"{etiqueta}: {puntos}", True, colores[nombre])
+            etiqueta = self._nombres[nombre]
+            marcador = fuente.render(f"{etiqueta}: {puntos}", True, colores[nombre]) 
             pantalla.blit(marcador, (x, 15))
             x += marcador.get_width() + 40
 
         partida = self._estado.get("match")
+
         if partida is not None:
-            if partida["condition"] == "time":
-                segundos = max(0, int(partida["value"] * 60 - partida["elapsed"] + 0.999))
-                limite = f"Tiempo: {segundos // 60}:{segundos % 60:02d}"
+            prorrogas = partida.get("overtime", 0)
+
+            if partida["condition"] == "time" or prorrogas > 0:
+                tiempo_limite = partida.get("time_limit")
+
+                if tiempo_limite is None:
+                    tiempo_limite = partida["value"] * 60
+
+                segundos = max(
+                    0,
+                    int(tiempo_limite - partida["elapsed"] + 0.999)
+                )
+
+                if prorrogas > 0:
+                    limite = f"Prorroga {prorrogas}: {segundos // 60}:{segundos % 60:02d}"
+                else:
+                    limite = f"Tiempo: {segundos // 60}:{segundos % 60:02d}"
+
             else:
                 limite = f"Objetivo: {partida['value']} puntos"
-            texto_limite = fuente.render(limite, True, COLOR_TEXTO)
-            pantalla.blit(texto_limite, texto_limite.get_rect(midtop=(ANCHO // 2, 15)))
 
+            texto_limite = fuente.render(limite, True, COLOR_TEXTO)
+            pantalla.blit(
+                texto_limite,
+                texto_limite.get_rect(midtop=(ANCHO // 2, 15))
+            )
     # Dibuja una flecha centrada en el jugador que apunta según su vector de dirección.
     @staticmethod
     def _dibujar_flecha(

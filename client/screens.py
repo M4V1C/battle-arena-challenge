@@ -2,6 +2,9 @@ import pygame
 
 from game import ALTO, ANCHO, COLOR_ERROR, COLOR_ROJO, COLOR_TEXTO, FONDO, Juego
 from network import ConexionServidor
+from gestion_usuarios import GestionUsuarios
+from avatar_selection import PantallaAvatares
+from avatar_repository import RepositorioAvatares
 
 # Definición de la interfaz de usuario y la lógica de las pantallas del juego.
 VOLVER = pygame.Rect(ANCHO - 80, 16, 56, 48)
@@ -24,6 +27,8 @@ class Aplicacion:
     def __init__(self, host: str, port: int):
         self.host = host
         self.port = port
+        self.usuarios = GestionUsuarios()
+        self.esperando_segundo_jugador = False
         self.pantalla_actual = "login"
         self.activa = True
         self.error = ""
@@ -35,6 +40,7 @@ class Aplicacion:
         self._pendiente = False
         self._configuracion_cargada = False
         self._confirmacion = ""
+        self._pantalla_avatares = PantallaAvatares(RepositorioAvatares(),{"red": self.usuarios.jugador_rojo,"blue": self.usuarios.jugador_azul,},)
 
     def _cerrar_configuracion(self) -> None:
         if self._conexion_config is not None:
@@ -123,43 +129,114 @@ class Aplicacion:
     # Define el botón de volver en la interfaz.
     def botones(self) -> list[tuple[pygame.Rect, str, str]]:
         opciones = {
-            "login": [("Continuar", "inicio")],
-            "inicio": [("Empezar", "juego"), ("Configuracion", "configuracion")],
+            "login": [
+                ("Continuar", "inicio"),
+            ],
+            "inicio": [
+                ("Empezar", "juego"),
+                ("Avatares", "avatares"),
+                ("Configuracion", "configuracion"),
+                ("Perfil", "perfil"),
+            ],
+            "avatares": [],
             "configuracion": [],
         }[self.pantalla_actual]
+
         altura = len(opciones) * 64 + max(0, len(opciones) - 1) * 20
+
         return [
-            (pygame.Rect(ANCHO // 2 - 160, ALTO // 2 - altura // 2 + indice * 84,
-                         320, 64), etiqueta, destino)
+            (
+                pygame.Rect(
+                    ANCHO // 2 - 160,
+                    ALTO // 2 - altura // 2 + indice * 84,
+                    320,
+                    64,
+                ),
+                etiqueta,
+                destino,
+            )
             for indice, (etiqueta, destino) in enumerate(opciones)
         ]
 
+    def _iniciar_juego(self):
+        self._pantalla_avatares.actualizar_nombres({
+            "red": self.usuarios.jugador_rojo,
+            "blue": self.usuarios.jugador_azul,
+        })
+        try:
+            self.activa = Juego(
+                self.host,
+                self.port,
+                self.usuarios.jugador_rojo,
+                self.usuarios.jugador_azul,
+            ).ejecutar()
+        except (OSError, ValueError) as error:
+            self.error = str(error)
+            
     # Procesa los eventos de la interfaz, como clics de ratón y cierre de ventana.
     def procesar_evento(self, evento: pygame.event.Event) -> None:
+        if self.pantalla_actual in ("login", "perfil") and evento.type != pygame.QUIT:
+            pantalla_anterior = self.pantalla_actual
+
+            self.usuarios.procesar_evento(evento)
+
+            if self.usuarios.estado.pantalla == "juego" and self.usuarios.autenticado:
+                if self.esperando_segundo_jugador:
+                    if self.usuarios.completar_segundo_jugador():
+                        self.esperando_segundo_jugador = False
+                        self.pantalla_actual = "inicio"
+                        self._iniciar_juego()
+                    else:
+                        self.pantalla_actual = "login"
+                else:
+                    self.pantalla_actual = "inicio"
+
+            elif pantalla_anterior == "perfil" and not self.usuarios.autenticado:
+                self.usuarios.cerrar_sesion()
+                self.pantalla_actual = "login"
+
+            return
         if evento.type == pygame.QUIT:
             self._cerrar_configuracion()
             self.activa = False
         elif evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:
             if self.pantalla_actual != "login" and VOLVER.collidepoint(evento.pos):
                 self._cerrar_configuracion()
-                self.pantalla_actual = "login" if self.pantalla_actual == "inicio" else "inicio"
+
+                if self.pantalla_actual == "inicio":
+                    self.usuarios.cerrar_sesion()
+                    self.pantalla_actual = "login"
+                else:
+                    self.pantalla_actual = "inicio"
+
                 self.error = ""
                 return
             for rectangulo, _, destino in self.botones():
                 if rectangulo.collidepoint(evento.pos):
                     self.error = ""
                     if destino == "juego":
-                        try:
-                            self.activa = Juego(self.host, self.port).ejecutar()
-                        except (OSError, ValueError) as error:
-                            self.error = str(error)
+                        if self.usuarios.preparar_segundo_jugador():
+                            self.esperando_segundo_jugador = True
+                            self.pantalla_actual = "login"
                     elif destino == "configuracion":
                         self._abrir_configuracion()
+                    elif destino == "perfil":
+                        self.usuarios.abrir_perfil()
+                        self.pantalla_actual = "perfil"
+                    elif destino == "avatares":
+                        self._pantalla_avatares.actualizar_nombres({
+                            "red": self.usuarios.jugador_rojo or self.usuarios.usuario or "Jugador 1",
+                            "blue": self.usuarios.jugador_azul or "Jugador 2",
+                        })
+                        self.pantalla_actual = "avatares"
                     else:
                         self.pantalla_actual = destino
                     return
         if self.pantalla_actual == "configuracion":
             self._evento_configuracion(evento)
+
+        if self.pantalla_actual == "avatares":
+            self._pantalla_avatares.procesar_evento(evento)
 
     def _dibujar_configuracion(self, pantalla: pygame.Surface, fuente: pygame.font.Font) -> None:
         for rectangulo, etiqueta, modo in (
@@ -192,12 +269,17 @@ class Aplicacion:
 
     # Dibuja la interfaz de usuario en la pantalla, incluyendo botones y mensajes de error.
     def dibujar(self, pantalla: pygame.Surface, fuente: pygame.font.Font) -> None:
+        if self.pantalla_actual in ("login", "perfil"):
+            self.usuarios.dibujar()
+            return    
         pantalla.fill(FONDO)
-        titulos = {"login": "Login", "inicio": "Inicio", "configuracion": "Configuracion"}
+        titulos = {"avatares": "Avatares","login": "Login", "inicio": "Inicio", "configuracion": "Configuracion"}
         titulo = fuente.render(titulos[self.pantalla_actual], True, COLOR_TEXTO)
         pantalla.blit(titulo, titulo.get_rect(center=(ANCHO // 2, 180)))
         if self.pantalla_actual == "configuracion":
             self._dibujar_configuracion(pantalla, fuente)
+        if self.pantalla_actual == "avatares":
+            self._pantalla_avatares.dibujar(pantalla, fuente)
         for rectangulo, etiqueta, _ in self.botones():
             color = (75, 100, 120) if rectangulo.collidepoint(pygame.mouse.get_pos()) else (50, 70, 85)
             pygame.draw.rect(pantalla, color, rectangulo, border_radius=6)
