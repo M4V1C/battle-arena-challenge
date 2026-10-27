@@ -33,5 +33,62 @@
         },
         "logros": [],
         "historial": []
+    },
+    {
+        "usuario": "mavic",
+        "correo": "mvillatoro0306@gmail.com",
+        "contrasena_sal": "c36b196835823d7583ee1887ac683e73",
+        "contrasena_hash": "28a713c1305f0ba0c69a417033a66f051083d8ee02eb9a47019638572027f26a",
+        "correo_verificado": true,
+        "avatar": "default",
+        "fecha_registro": "26/10/2026",
+        "estadisticas": {
+            "partidas_jugadas": 1,
+            "victorias": 1,
+            "derrotas": 0,
+            "puntaje_total": 10,
+            "mejor_puntaje": 10,
+            "tiempo_total_seg": 30
+        },
+        "logros": [
+            "primera_partida",
+            "primera_victoria"
+        ],
+        "historial": [
+            {
+                "fecha": "26/10/2026 22:21",
+                "resultado": "victoria",
+                "puntaje": 10,
+                "duracion_seg": 30
+            }
+        ]
+    },
+    {
+        "usuario": "mavic2",
+        "correo": "marco.zonda.r@gmail.com",
+        "contrasena_sal": "93ab7af9c02329abe58db6390cf833d6",
+        "contrasena_hash": "fe0e307066f6030827f524a4bf95e28e8adf323053ba51315a2fd76dbb5ec17b",
+        "correo_verificado": true,
+        "avatar": "default",
+        "fecha_registro": "26/10/2026",
+        "estadisticas": {
+            "partidas_jugadas": 1,
+            "victorias": 0,
+            "derrotas": 1,
+            "puntaje_total": 0,
+            "mejor_puntaje": 0,
+            "tiempo_total_seg": 30
+        },
+        "logros": [
+            "primera_partida"
+        ],
+        "historial": [
+            {
+                "fecha": "26/10/2026 22:21",
+                "resultado": "derrota",
+                "puntaje": 0,
+                "duracion_seg": 30
+            }
+        ]
     }
 ]

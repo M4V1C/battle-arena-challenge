@@ -2,6 +2,7 @@
 
 import pygame
 
+from controller import ControlSDL
 from keybindings import cargar_keybindings
 from network import ConexionServidor
 from avatar_repository import RepositorioAvatares
@@ -42,6 +43,7 @@ class Juego:
             jugador: {"shoot": 0, "interact": 0} for jugador in ("red", "blue")
         }
         self._teclas: dict[str, dict[str, int]] = {}
+        self._control: ControlSDL | None = None
         self._mensaje = f"Servidor: {host}:{port}"
 
         self._avatares = RepositorioAvatares().obtener()
@@ -98,6 +100,11 @@ class Juego:
             self._conexion.cerrar()
             raise
         pantalla = pygame.display.set_mode((ANCHO, ALTO))
+        try:
+            self._control = ControlSDL()
+        except pygame.error as error:
+            self._control = None
+            self._mensaje = f"Control no disponible; se usa teclado: {error}"
         pygame.display.set_caption("Battle Arena - Dos jugadores")
         fuente = pygame.font.SysFont(None, 28)
         reloj = pygame.time.Clock()
@@ -108,6 +115,8 @@ class Juego:
         try:
             while activo:
                 for evento in pygame.event.get():
+                    if self._control is not None:
+                        self._control.procesar_evento(evento)
                     if evento.type == pygame.QUIT:
                         return False
                     elif evento.type == pygame.MOUSEBUTTONDOWN and evento.button == 1:
@@ -138,6 +147,9 @@ class Juego:
                 pygame.display.flip()
                 reloj.tick(60)
         finally:
+            if self._control is not None:
+                self._control.cerrar()
+                self._control = None
             self._conexion.cerrar()
 
     # Cuenta las pulsaciones de disparo e interacción de cada jugador.
@@ -150,14 +162,28 @@ class Juego:
     # Convierte el teclado en direcciones discretas y acciones para el servidor.
     def _leer_controles(self) -> dict[str, dict[str, int]]:
         presionadas = pygame.key.get_pressed()
-        return {
+        entradas = {
             jugador: {
                 "x": int(presionadas[t["right"]]) - int(presionadas[t["left"]]),
                 "y": int(presionadas[t["down"]]) - int(presionadas[t["up"]]),
-                **self._contadores[jugador],
+                "interact": self._contadores[jugador]["interact"],
+                "shoot": self._contadores[jugador]["shoot"],
             }
             for jugador, t in self._teclas.items()
         }
+        if self._control is None:
+            return entradas
+
+        control = self._control.leer()
+        if control.x or control.y:
+            entradas["red"]["x"] = control.x
+            entradas["red"]["y"] = control.y
+        if control.interactuar:
+            self._contadores["red"]["interact"] += 1
+        if control.disparar:
+            self._contadores["red"]["shoot"] += 1
+        entradas["red"].update(self._contadores["red"])
+        return entradas
 
     # Dibuja la arena y los jugadores según el estado actual.
     def _dibujar(self, pantalla: pygame.Surface, fuente: pygame.font.Font) -> None:
