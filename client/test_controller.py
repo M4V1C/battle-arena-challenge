@@ -1,12 +1,14 @@
 import math
 import os
 import unittest
+from collections import defaultdict
 from unittest.mock import Mock, patch
 
 import pygame
 
 from controller import ControlSDL, EntradaControl, NormalizadorControl
 from controller_probe import DemostracionControl, ejecutar
+from game import Juego
 
 
 class NormalizadorTest(unittest.TestCase):
@@ -140,3 +142,67 @@ class DemostracionTest(unittest.TestCase):
         self.assertFalse(demo.verificada)
         self.assertEqual(demo.disparos, 0)
         self.assertEqual(demo.interacciones, 0)
+
+
+class IntegracionJuegoTest(unittest.TestCase):
+    def crear_juego(self):
+        juego = Juego.__new__(Juego)
+        juego._teclas = {
+            "red": {"left": pygame.K_a, "right": pygame.K_d, "up": pygame.K_w, "down": pygame.K_s},
+            "blue": {
+                "left": pygame.K_LEFT, "right": pygame.K_RIGHT,
+                "up": pygame.K_UP, "down": pygame.K_DOWN,
+            },
+        }
+        juego._contadores = {
+            "red": {"shoot": 0, "interact": 0},
+            "blue": {"shoot": 0, "interact": 0},
+        }
+        return juego
+
+    @patch("game.pygame.key.get_pressed")
+    def test_dualsense_mapea_stick_x_y_r2_al_jugador_rojo(self, get_pressed):
+        get_pressed.return_value = defaultdict(int, {pygame.K_d: 1, pygame.K_UP: 1})
+        juego = self.crear_juego()
+        juego._control = Mock()
+        juego._control.leer.return_value = EntradaControl(
+            x=0.35, y=-0.6, interactuar=True, disparar=True
+        )
+
+        entradas = juego._leer_controles()
+
+        self.assertEqual(entradas["red"], {"x": 0.35, "y": -0.6, "shoot": 1, "interact": 1})
+        self.assertEqual(entradas["blue"], {"x": 0, "y": -1, "shoot": 0, "interact": 0})
+        juego._control.leer.assert_called_once()
+
+    @patch("game.pygame.key.get_pressed")
+    def test_teclado_rojo_sigue_funcionando_con_stick_centrado(self, get_pressed):
+        get_pressed.return_value = defaultdict(int, {pygame.K_a: 1, pygame.K_s: 1})
+        juego = self.crear_juego()
+        juego._control = Mock()
+        juego._control.leer.return_value = EntradaControl()
+
+        entradas = juego._leer_controles()
+
+        self.assertEqual(entradas["red"]["x"], -1)
+        self.assertEqual(entradas["red"]["y"], 1)
+
+    @patch("game.pygame.key.get_pressed")
+    def test_contadores_de_control_solo_suben_al_pulsar(self, get_pressed):
+        get_pressed.return_value = defaultdict(int)
+        juego = self.crear_juego()
+        juego._control = Mock()
+        juego._control.leer.side_effect = [
+            EntradaControl(interactuar=True, disparar=True),
+            EntradaControl(),
+            EntradaControl(interactuar=True),
+        ]
+
+        entradas = [juego._leer_controles() for _ in range(3)]
+
+        self.assertEqual(entradas[0]["red"]["interact"], 1)
+        self.assertEqual(entradas[0]["red"]["shoot"], 1)
+        self.assertEqual(entradas[1]["red"]["interact"], 1)
+        self.assertEqual(entradas[1]["red"]["shoot"], 1)
+        self.assertEqual(entradas[2]["red"]["interact"], 2)
+        self.assertEqual(entradas[2]["red"]["shoot"], 1)
