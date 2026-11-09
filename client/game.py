@@ -22,6 +22,9 @@ COLOR_CONGELADO = (170, 230, 255)   # Contorno de un jugador congelado en el rea
 COLOR_TEXTO = (240, 240, 240)       # Color del texto en la ventana de juego
 COLOR_ERROR = (255, 150, 150)       # Color de los mensajes de error en la ventana de juego
 COLOR_DIRECCION_DESEADA = (185, 195, 205)
+COLOR_NORMAL = (120, 220, 150)
+COLOR_INMOVILIZADO = (255, 160, 100)
+COLOR_EXTRAYENDO = (250, 220, 50)
 INTERVALO_ENTRADAS = 1 / 60         # Intervalo de tiempo entre envíos de entradas al servidor (segundos)
 
 # Clase principal que maneja la lógica del juego y la interacción con el servidor.
@@ -131,6 +134,7 @@ class Juego:
                     tiempo_ultima_entrada = ahora
 
                 respuesta = self._conexion.obtener_estado()
+
                 if respuesta is not None:
                     if respuesta.get("type") == "state":
                         self._estado = respuesta
@@ -184,6 +188,42 @@ class Juego:
             self._contadores["red"]["shoot"] += 1
         entradas["red"].update(self._contadores["red"])
         return entradas
+
+    @staticmethod
+    def _obtener_estado_jugador(jugador: dict) -> tuple[str, tuple[int, int, int]]:
+        """Devuelve el texto y color correspondientes al estado del jugador."""
+
+        estado = jugador.get("status")
+
+        if estado in ("stunned", "frozen") or jugador.get("frozen"):
+            return "Inmovilizado", COLOR_INMOVILIZADO
+
+        if jugador.get("interacting"):
+            return "Extrayendo energia", COLOR_EXTRAYENDO
+
+        return "Normal", COLOR_NORMAL
+    
+    def _obtener_estado_reactor(self, reactor: dict) -> tuple[str, tuple[int, int, int]]:
+        """Devuelve el estado del reactor usando el nombre del jugador."""
+
+        if not isinstance(reactor, dict):
+            return "Estado desconocido", (180, 180, 180)
+
+        operador = reactor.get("operator")
+
+        if operador is None:
+            return "Sin operador", (120, 220, 150)
+
+        if operador == "red":
+            nombre = self._nombres.get("red", "Jugador sin identificar")
+            return f"Operado por {nombre}", (255, 100, 100)
+
+        if operador == "blue":
+            nombre = self._nombres.get("blue", "Jugador sin identificar")
+            return f"Operado por {nombre}", (100, 160, 255)
+
+        return "Estado desconocido", (180, 180, 180)
+
 
     # Dibuja la arena y los jugadores según el estado actual.
     def _dibujar(self, pantalla: pygame.Surface, fuente: pygame.font.Font) -> None:
@@ -251,13 +291,46 @@ class Juego:
         texto = fuente.render(self._mensaje, True, COLOR_TEXTO)
         pantalla.blit(texto, (20, ALTO - 35))
 
+        
         x = 20
         for nombre in ("red", "blue"):
-            puntos = jugadores.get(nombre, {}).get("score", 0)
+            jugador = jugadores.get(nombre, {})
+            puntos = jugador.get("score", 0)
             etiqueta = self._nombres[nombre]
-            marcador = fuente.render(f"{etiqueta}: {puntos}", True, colores[nombre]) 
+
+            marcador = fuente.render(
+                f"{etiqueta}: {puntos}",
+                True,
+                colores[nombre],
+            )
             pantalla.blit(marcador, (x, 15))
-            x += marcador.get_width() + 40
+
+            texto_estado, color_estado = self._obtener_estado_jugador(jugador)
+
+            indicador = fuente.render(
+                texto_estado,
+                True,
+                color_estado,
+            )
+            pantalla.blit(indicador, (x, 45))
+
+            x += max(marcador.get_width(), indicador.get_width()) + 40
+
+        # Mostrar el estado del reactor una sola vez
+        reactor = self._estado.get("reactor", {})
+
+        texto_reactor, color_reactor = self._obtener_estado_reactor(reactor)
+
+        indicador_reactor = fuente.render(
+            f"Reactor: {texto_reactor}",
+            True,
+            color_reactor,
+        )
+
+        pantalla.blit(
+            indicador_reactor,
+            (ANCHO // 2 - indicador_reactor.get_width() // 2, 75),
+        )
 
         partida = self._estado.get("match")
 
