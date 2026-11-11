@@ -130,6 +130,21 @@ class Aplicacion:
 
     # Define el botón de volver en la interfaz.
     def botones(self) -> list[tuple[pygame.Rect, str, str]]:
+
+        if self.pantalla_actual == "escenarios":
+            return [
+                (
+                    pygame.Rect(
+                        ANCHO // 2 - 160,
+                        ALTO // 2 + 170,
+                        320,
+                        64,
+                    ),
+                    "Confirmar escenario",
+                    "confirmar_escenario",
+                )
+            ]
+
         opciones = {
             "login": [
                 ("Continuar", "inicio"),

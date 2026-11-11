@@ -8,6 +8,7 @@ from network import ConexionServidor
 from avatar_repository import RepositorioAvatares
 from avatar_renderer import RenderizadorAvatares
 from victory_screen import PantallaVictoria
+from hud_notifications import NotificacionesHUD
 
 ANCHO, ALTO = 1600, 900             # Dimensiones de la ventana de juego
 TAMANO_JUGADOR = 40                 # Tamaño visual de cada jugador en la ventana
@@ -48,6 +49,7 @@ class Juego:
         self._teclas: dict[str, dict[str, int]] = {}
         self._control: ControlSDL | None = None
         self._mensaje = f"Servidor: {host}:{port}"
+        self._notificaciones = NotificacionesHUD()
 
         self._avatares = RepositorioAvatares().obtener()
         self._renderizador_avatares = RenderizadorAvatares()
@@ -361,6 +363,7 @@ class Juego:
                 texto_limite,
                 texto_limite.get_rect(midtop=(ANCHO // 2, 15))
             )
+            self._notificaciones.dibujar(pantalla, fuente)
     # Dibuja una flecha centrada en el jugador que apunta según su vector de dirección.
     @staticmethod
     def _dibujar_flecha(
