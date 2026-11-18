@@ -3,6 +3,7 @@ import math
 import pytest
 
 from app.game_state import MAPA_INICIAL, EstadoJuego, Obstaculo
+from tests.helpers import partida_iniciada
 
 
 def mover_rojo(juego: EstadoJuego, x: int, y: int, segundos: float = 2.0) -> dict:
@@ -24,7 +25,7 @@ def mover_rojo(juego: EstadoJuego, x: int, y: int, segundos: float = 2.0) -> dic
 )
 def test_obstaculo_detiene_el_movimiento(dx, dy, obstaculo, esperado):
     """El hitbox del obstáculo detiene al jugador en su borde por cualquier lado."""
-    juego = EstadoJuego(obstaculos=(obstaculo,))
+    juego = partida_iniciada(obstaculos=(obstaculo,))
     angulo = math.atan2(dy, dx)
     juego._jugadores["red"].dir_x = math.cos(angulo - math.pi / 4)
     juego._jugadores["red"].dir_y = math.sin(angulo - math.pi / 4)
@@ -40,7 +41,7 @@ def test_obstaculo_detiene_el_movimiento(dx, dy, obstaculo, esperado):
 
 def test_jugador_se_desliza_por_la_pared_en_diagonal():
     """Al chocar en diagonal se bloquea un eje y el otro sigue avanzando."""
-    juego = EstadoJuego(obstaculos=(Obstaculo(160, 0, 40, 900),))
+    juego = partida_iniciada(obstaculos=(Obstaculo(160, 0, 40, 900),))
 
     posicion = mover_rojo(juego, 1, 1, segundos=1.0)
 
@@ -50,7 +51,7 @@ def test_jugador_se_desliza_por_la_pared_en_diagonal():
 
 def test_delta_grande_no_atraviesa_obstaculos_delgados():
     """Un salto de tiempo grande no permite cruzar una pared delgada."""
-    juego = EstadoJuego(obstaculos=(Obstaculo(160, 0, 5, 900),))
+    juego = partida_iniciada(obstaculos=(Obstaculo(160, 0, 5, 900),))
     juego.actualizar_entradas({"red": {"x": 0, "y": 1}, "blue": {"x": 0, "y": 0}})
 
     juego.avanzar(5.0)
@@ -67,7 +68,7 @@ def test_estado_incluye_obstaculos():
 
 def test_mapa_inicial_no_atrapa_a_los_jugadores():
     """Las posiciones iniciales no se solapan con el mapa por defecto."""
-    juego = EstadoJuego()
+    juego = partida_iniciada()
     tamano = EstadoJuego.TAMANO_JUGADOR
 
     for jugador in juego.estado()["players"].values():

@@ -9,6 +9,19 @@ from app.game_config import CONFIGURACION_INICIAL, validar_configuracion
 
 ACCIONES = ("shoot", "interact")
 
+PUESTOS = ("red", "blue")
+ANFITRION = "red"
+MAX_NOTIFICACIONES = 20
+
+
+class Rechazo(ValueError):
+    """Solicitud rechazada: codigo estable para el cliente y motivo legible."""
+
+    def __init__(self, codigo: str, motivo: str):
+        super().__init__(motivo)
+        self.codigo = codigo
+        self.motivo = motivo
+
 # PosiciÃ³n actual de un jugador dentro de la arena
 @dataclass
 class Jugador:
@@ -91,6 +104,13 @@ class EstadoJuego:
         # El bloqueo hace atÃ³micas las actualizaciones concurrentes recibidas
         # por los hilos que atienden conexiones TCP.
         self._bloqueo = threading.Lock()
+        # Sala: usuario que ocupa cada puesto y si su conexion sigue abierta.
+        self._puestos: dict[str, str | None] = dict.fromkeys(PUESTOS)
+        self._conectados: dict[str, bool] = dict.fromkeys(PUESTOS, False)
+        # Avisos para los clientes; el id crece siempre, aunque se vacie la lista.
+        self._notificaciones: list[dict[str, Any]] = []
+        self._ultimo_id_notificacion = 0
+        self._jugadores: dict[str, Jugador] = {}
         self._reiniciar_estado()
 
     # Reinicia la partida a su estado inicial.
@@ -99,14 +119,121 @@ class EstadoJuego:
             self._reiniciar_estado()
 
     def iniciar_partida(self, configuracion: Any) -> dict[str, Any]:
-        configuracion = validar_configuracion(configuracion)
         with self._bloqueo:
-            self._configuracion = configuracion
-            self._reiniciar_estado()
-            if configuracion["condition"] == "time":
-                self._limite_tiempo = configuracion["value"] * 60
-            self._iniciada = True
+            return self._iniciar_bloqueado(configuracion)
+
+    # Arranca la partida; el llamador ya posee el bloqueo.
+    def _iniciar_bloqueado(self, configuracion: Any) -> dict[str, Any]:
+        configuracion = validar_configuracion(configuracion)
+        self._configuracion = configuracion
+        self._reiniciar_estado()
+        if configuracion["condition"] == "time":
+            self._limite_tiempo = configuracion["value"] * 60
+        self._iniciada = True
+        return self._crear_estado()
+
+    # Asigna un puesto al usuario: red al primero (anfitrion) y blue al segundo.
+    # Si el usuario ya tenia puesto (se desconecto en plena partida) lo recupera.
+    def unir_jugador(self, usuario: Any) -> str:
+        if not isinstance(usuario, str) or not usuario.strip():
+            raise Rechazo("invalid_user", "El usuario no es válido.")
+        usuario = usuario.strip()
+        with self._bloqueo:
+            for puesto, ocupante in self._puestos.items():
+                if ocupante == usuario:
+                    if self._conectados[puesto]:
+                        raise Rechazo(
+                            "already_connected",
+                            "Esta cuenta ya está conectada a la partida.",
+                        )
+                    self._conectados[puesto] = True
+                    self._reiniciar_contadores(puesto)
+                    return puesto
+            libre = next((p for p in PUESTOS if self._puestos[p] is None), None)
+            if libre is None:
+                raise Rechazo("room_full", "La sala ya tiene dos jugadores.")
+            self._puestos[libre] = usuario
+            self._conectados[libre] = True
+            self._reiniciar_contadores(libre)
+            return libre
+
+    # Libera el puesto cuando se cierra la conexion de su cliente.
+    # Antes de empezar (o al terminar) el puesto queda libre; en plena partida
+    # se reserva para el mismo usuario. Si no queda nadie, la sala se vacia.
+    def liberar_puesto(self, puesto: str) -> None:
+        with self._bloqueo:
+            if puesto not in self._puestos or not self._conectados[puesto]:
+                return
+            self._conectados[puesto] = False
+            self._entradas[puesto] = (0, 0)
+            jugador = self._jugadores[puesto]
+            jugador.mov_x = jugador.mov_y = 0.0
+            self._reiniciar_contadores(puesto)
+            if self._operador_reactor == puesto:
+                self._operador_reactor = None
+            if not self._iniciada or self._terminada:
+                self._puestos[puesto] = None
+            if not any(self._conectados.values()):
+                self._vaciar_sala()
+
+    # Deja la sala como recien creada. El llamador ya posee el bloqueo.
+    def _vaciar_sala(self) -> None:
+        self._reiniciar_estado()
+        for puesto in PUESTOS:
+            self._reiniciar_contadores(puesto)
+        self._puestos = dict.fromkeys(PUESTOS)
+        self._conectados = dict.fromkeys(PUESTOS, False)
+        self._notificaciones = []
+
+    def _reiniciar_contadores(self, puesto: str) -> None:
+        self._jugadores[puesto].contadores = dict.fromkeys(ACCIONES, 0)
+
+    # Inicia la partida a peticion de un puesto. Solo la inicia el anfitrion,
+    # con los dos jugadores conectados y sin otra partida en curso.
+    def iniciar_por(self, puesto: str, configuracion: Any) -> dict[str, Any]:
+        with self._bloqueo:
+            if puesto != ANFITRION:
+                raise Rechazo("not_host", "Solo el anfitrión puede iniciar la partida.")
+            if self._iniciada and not self._terminada:
+                raise Rechazo("match_in_progress", "La partida ya está en curso.")
+            if not all(self._conectados.values()):
+                raise Rechazo(
+                    "waiting_for_players", "Falta que se conecte el otro jugador."
+                )
+            return self._iniciar_bloqueado(configuracion)
+
+    # Registra un rechazo para un puesto en state.notifications y devuelve el estado.
+    def rechazar(self, puesto: str, codigo: str, motivo: str) -> dict[str, Any]:
+        with self._bloqueo:
+            self._agregar_notificacion("reject", motivo, "warning", puesto, codigo)
             return self._crear_estado()
+
+    # Id de la ultima notificacion emitida (0 si aun no hay ninguna).
+    def ultima_notificacion(self) -> int:
+        with self._bloqueo:
+            return self._ultimo_id_notificacion
+
+    # Agrega un aviso con id creciente. El llamador ya posee el bloqueo.
+    def _agregar_notificacion(
+        self,
+        tipo: str,
+        mensaje: str,
+        severidad: str,
+        para: str | None = None,
+        codigo: str | None = None,
+    ) -> None:
+        self._ultimo_id_notificacion += 1
+        notificacion: dict[str, Any] = {
+            "id": self._ultimo_id_notificacion,
+            "kind": tipo,
+            "message": mensaje,
+            "severity": severidad,
+            "for": para,
+        }
+        if codigo is not None:
+            notificacion["code"] = codigo
+        self._notificaciones.append(notificacion)
+        del self._notificaciones[:-MAX_NOTIFICACIONES]
 
     # Inicializa o reinicia el estado interno del juego. No debe llamarse directamente desde fuera de la clase.
     def _reiniciar_estado(self) -> None:
@@ -118,6 +245,7 @@ class EstadoJuego:
         self._limite_tiempo = None
         self._operador_reactor = None
         self._tiempo_reactor = 0.0
+        anteriores = self._jugadores
         self._jugadores = {
             "red": Jugador(100, 100, dir_x=1.0),
             "blue": Jugador(
@@ -126,6 +254,11 @@ class EstadoJuego:
                 dir_x=-1.0,
             ),
         }
+        # Los contadores acumulados pertenecen a la conexion, no a la partida:
+        # si se reiniciaran, la ultima pulsacion de un cliente se repetiria.
+        for nombre, jugador in self._jugadores.items():
+            if nombre in anteriores:
+                jugador.contadores = dict(anteriores[nombre].contadores)
         self._proyectiles: list[Proyectil] = []
         # El servidor conserva la Ãºltima direcciÃ³n recibida y simula el
         # movimiento a una frecuencia fija, independiente de los paquetes.
@@ -153,7 +286,19 @@ class EstadoJuego:
         self._limite_tiempo = tiempo + 120
         self._iniciada = True
 
-    # Valida y guarda las entradas mÃ¡s recientes de ambos jugadores.
+    # Valida y aplica la entrada de UN puesto (la de su propia conexion).
+    # No inicia la partida: fuera de una partida activa solo sincroniza los
+    # contadores para que una pulsacion vieja no se ejecute al empezar.
+    def aplicar_entrada(self, puesto: str, entrada: Any) -> dict[str, Any]:
+        if puesto not in self._jugadores:
+            raise Rechazo("not_joined", "No tienes un puesto en la partida.")
+        direccion = self._leer_direccion(entrada)
+        acciones = self._leer_acciones(entrada)
+        with self._bloqueo:
+            self._aplicar_entrada(puesto, direccion, acciones)
+            return self._crear_estado()
+
+    # Valida y aplica las entradas de ambos puestos a la vez (pruebas y bots locales).
     def actualizar_entradas(self, entradas: Any) -> dict[str, Any]:
         if not isinstance(entradas, dict):
             raise ValueError("Las entradas deben ser un objeto JSON.")
@@ -168,22 +313,32 @@ class EstadoJuego:
         }
 
         with self._bloqueo:
-            if self._terminada:
-                return self._crear_estado()
-            self._iniciada = True
-            self._entradas.update(direcciones)
-            for nombre, (dx, dy) in direcciones.items():
-                jugador = self._jugadores[nombre]
-                magnitud = math.hypot(dx, dy)
-                jugador.mov_x = dx / magnitud if magnitud else 0.0
-                jugador.mov_y = dy / magnitud if magnitud else 0.0
-                # Los contadores son acumulativos: una pulsaciÃ³n no se pierde
-                # aunque el cliente descarte mensajes intermedios.
-                for accion, contador in acciones[nombre].items():
-                    if contador > jugador.contadores[accion]:
-                        self._ejecutar_accion(nombre, accion)
-                    jugador.contadores[accion] = contador
+            for nombre in self._jugadores:
+                self._aplicar_entrada(nombre, direcciones[nombre], acciones[nombre])
             return self._crear_estado()
+
+    # Aplica una entrada ya validada. El llamador ya posee el bloqueo.
+    def _aplicar_entrada(
+        self,
+        nombre: str,
+        direccion: tuple[float, float],
+        acciones: dict[str, int],
+    ) -> None:
+        jugador = self._jugadores[nombre]
+        activa = self._iniciada and not self._terminada
+        if activa:
+            dx, dy = direccion
+            self._entradas[nombre] = direccion
+            magnitud = math.hypot(dx, dy)
+            jugador.mov_x = dx / magnitud if magnitud else 0.0
+            jugador.mov_y = dy / magnitud if magnitud else 0.0
+        # Los contadores son acumulativos y un valor menor o igual al ultimo
+        # procesado es una repeticion: se ignora (CA-18.8).
+        for accion, contador in acciones.items():
+            if contador > jugador.contadores[accion]:
+                jugador.contadores[accion] = contador
+                if activa:
+                    self._ejecutar_accion(nombre, accion)
 
     # Ejecuta la acciÃ³n correspondiente a un jugador, como interactuar con el reactor o disparar.
     def _ejecutar_accion(self, nombre: str, accion: str) -> None:
@@ -388,6 +543,7 @@ class EstadoJuego:
             "player_size": self.TAMANO_JUGADOR,
             "projectile_size": self.TAMANO_PROYECTIL,
             "match": {
+                "started": self._iniciada,        # nuevo
                 "finished": self._terminada,
                 "elapsed": self._tiempo_partida,
                 "condition": self._configuracion["condition"],
@@ -407,6 +563,8 @@ class EstadoJuego:
                     "interacting": jugador.tiempo_interaccion > 0,
                     "frozen": nombre == self._operador_reactor,
                     "score": jugador.puntos,
+                    "username": self._puestos[nombre],     # nuevo
+                    "connected": self._conectados[nombre], # nuevo
                 }
                 for nombre, jugador in self._jugadores.items()
             },
@@ -420,8 +578,8 @@ class EstadoJuego:
             "projectiles": [{"x": p.x, "y": p.y} for p in self._proyectiles],
             "obstacles": [
                 {"x": o.x, "y": o.y, "width": o.ancho, "height": o.alto}
-                for o in self._obstaculos
-            ],
+                for o in self._obstaculos],
+            "notifications": list(self._notificaciones),   # nuevo
         }
 
     # Valida entradas digitales o analogicas y descarta el ruido del stick.
