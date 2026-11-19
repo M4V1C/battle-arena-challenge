@@ -6,12 +6,16 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.game_config import CONFIGURACION_INICIAL, validar_configuracion
+from app.reglas import Reglas, cargar_reglas
 
 ACCIONES = ("shoot", "interact")
 
 PUESTOS = ("red", "blue")
 ANFITRION = "red"
 MAX_NOTIFICACIONES = 20
+# Estados del reactor en state.reactor.status.
+REACTOR_DISPONIBLE = "available"
+REACTOR_EN_USO = "in_use"
 
 
 class Rechazo(ValueError):
@@ -83,12 +87,17 @@ class EstadoJuego:
     VELOCIDAD_PROYECTIL = 900.0           # Velocidad de los proyectiles en unidades por segundo.
     DURACION_INTERACCION = 0.15           # DuraciÃ³n en segundos de la interacciÃ³n con el reactor.
     RADIO_REACTOR = 1.5 * TAMANO_JUGADOR  # Anillo de diÃ¡metro 3x el hitbox.
-    INTERVALO_PUNTO = 0.5
     VELOCIDAD_GIRO = math.radians(360)
     ZONA_MUERTA = 0.15
 
     # Crea la arena con las posiciones iniciales de rojo y azul
-    def __init__(self, obstaculos: tuple[Obstaculo, ...] = MAPA_INICIAL):
+    def __init__(
+        self,
+        obstaculos: tuple[Obstaculo, ...] = MAPA_INICIAL,
+        reglas: Reglas | None = None,
+    ):
+        self._reglas = reglas if reglas is not None else cargar_reglas()
+
         self._configuracion = dict(CONFIGURACION_INICIAL)
         self._obstaculos = tuple(obstaculos)
         self._reactor = Obstaculo(
@@ -205,8 +214,11 @@ class EstadoJuego:
     # Registra un rechazo para un puesto en state.notifications y devuelve el estado.
     def rechazar(self, puesto: str, codigo: str, motivo: str) -> dict[str, Any]:
         with self._bloqueo:
-            self._agregar_notificacion("reject", motivo, "warning", puesto, codigo)
+            self._rechazar(puesto, codigo, motivo)
             return self._crear_estado()
+    #Anota un rechazo dirigido a un puesto. El llamador ya posee el bloqueo.
+    def _rechazar(self, puesto: str, codigo: str, motivo: str) -> None:
+        self._agregar_notificacion("reject", motivo, "warning", puesto, codigo)
 
     # Id de la ultima notificacion emitida (0 si aun no hay ninguna).
     def ultima_notificacion(self) -> int:
@@ -339,15 +351,26 @@ class EstadoJuego:
                 jugador.contadores[accion] = contador
                 if activa:
                     self._ejecutar_accion(nombre, accion)
+                elif accion == "interact":
+                    self._rechazar(nombre, "match_not_active", "La partida no está activa.")
 
     # Ejecuta la acciÃ³n correspondiente a un jugador, como interactuar con el reactor o disparar.
     def _ejecutar_accion(self, nombre: str, accion: str) -> None:
         jugador = self._jugadores[nombre]
         if accion == "interact":
-            jugador.tiempo_interaccion = self.DURACION_INTERACCION
             if self._operador_reactor == nombre:
                 self._operador_reactor = None
-            elif self._operador_reactor is None and self._en_rango_reactor(jugador):
+            elif self._operador_reactor is not None:
+                self._rechazar(
+                    nombre, "reactor_busy", "El otro jugador está usando el reactor."
+                )
+            elif not self._en_rango_reactor(jugador):
+                self._rechazar(
+                    nombre,
+                    "out_of_range",
+                    "Estás fuera de la zona del reactor. Acércate para extraer energía.",
+                )
+            else:
                 self._operador_reactor = nombre
                 self._tiempo_reactor = 0.0
         elif accion == "shoot" and nombre != self._operador_reactor:
@@ -392,8 +415,13 @@ class EstadoJuego:
                     max(0.0, self._limite_tiempo - self._tiempo_partida)
                 )
             elif self._operador_reactor is not None:
+                # Extracciones que faltan para que el operador llegue al objetivo.
                 restantes = limite - self._jugadores[self._operador_reactor].puntos
-                delta_t = min(delta_t, max(0.0, restantes * self.INTERVALO_PUNTO - self._tiempo_reactor))
+                faltan = math.ceil(max(0, restantes) / self._reglas.puntos_por_energia)
+                delta_t = min(
+                    delta_t,
+                    max(0.0, faltan * self._reglas.intervalo_extraccion - self._tiempo_reactor),
+                )
             self._tiempo_partida += delta_t
             for nombre, (dx, dy) in self._entradas.items():
                 jugador = self._jugadores[nombre]
@@ -403,9 +431,13 @@ class EstadoJuego:
                 jugador.tiempo_interaccion = max(0.0, jugador.tiempo_interaccion - delta_t)
             if self._operador_reactor is not None:
                 self._tiempo_reactor += delta_t
-                puntos = math.floor((self._tiempo_reactor + 1e-9) / self.INTERVALO_PUNTO)
-                self._tiempo_reactor = max(0.0, self._tiempo_reactor - puntos * self.INTERVALO_PUNTO)
-                self._jugadores[self._operador_reactor].puntos += puntos
+                intervalo = self._reglas.intervalo_extraccion
+                extracciones = math.floor((self._tiempo_reactor + 1e-9) / intervalo)
+                self._tiempo_reactor = max(0.0, self._tiempo_reactor - extracciones * intervalo)
+                # Unica fuente de puntos: extraer energia del reactor.
+                self._jugadores[self._operador_reactor].puntos += (
+                    extracciones * self._reglas.puntos_por_energia
+                )
             self._proyectiles = [
                 p for p in self._proyectiles if self._mover_proyectil(p, delta_t)
             ]
@@ -561,7 +593,8 @@ class EstadoJuego:
                     "move_x": jugador.mov_x,
                     "move_y": jugador.mov_y,
                     "interacting": jugador.tiempo_interaccion > 0,
-                    "frozen": nombre == self._operador_reactor,
+                    "frozen": False,
+                    "extracting": nombre == self._operador_reactor,
                     "score": jugador.puntos,
                     "username": self._puestos[nombre],     # nuevo
                     "connected": self._conectados[nombre], # nuevo
@@ -574,6 +607,11 @@ class EstadoJuego:
                 "size": self._reactor.ancho,
                 "ring_radius": self.RADIO_REACTOR,
                 "operator": self._operador_reactor,
+                "status": (
+                    REACTOR_DISPONIBLE
+                    if self._operador_reactor is None
+                    else REACTOR_EN_USO
+                ),
             },
             "projectiles": [{"x": p.x, "y": p.y} for p in self._proyectiles],
             "obstacles": [
