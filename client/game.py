@@ -1,5 +1,9 @@
 # Ventana Pygame y controles locales para los dos jugadores.
 
+from importlib import import_module
+from pathlib import Path
+import sys
+
 import pygame
 
 from controller import ControlSDL
@@ -16,6 +20,10 @@ FONDO = (30, 30, 40)                # Color de fondo de la ventana de juego
 COLOR_ROJO = (220, 55, 55)          # Color del jugador rojo
 COLOR_AZUL = (55, 110, 230)         # Color del jugador azul
 COLOR_OBSTACULO = (110, 110, 125)   # Color de los obstáculos
+COLOR_PUERTA_CERRADA = (230, 145, 65)
+COLOR_PUERTA_ABIERTA = (90, 215, 130)
+COLORES_TRAMPA = {"jaula": (215, 75, 80), "arenas": (180, 145, 65), "inversion": (145, 95, 220)}
+LETRAS_TRAMPA = {"jaula": "J", "arenas": "A", "inversion": "I"}
 COLOR_INTERACCION = (250, 220, 50)  # Color del círculo de interacción
 COLOR_PROYECTIL = (255, 240, 150)   # Color de los disparos
 COLOR_REACTOR = (250, 210, 40)      # Color del reactor y su anillo
@@ -57,7 +65,10 @@ class Juego:
     def _registrar_resultado(self) -> None:
         """Guarda las estadísticas de ambos jugadores al terminar la partida."""
     
-        from perfil_datos import registrar_partida
+        ruta_usuarios = Path(__file__).resolve().parent.parent / "Epica 01-Gestion de usuarios"
+        if str(ruta_usuarios) not in sys.path:
+            sys.path.insert(0, str(ruta_usuarios))
+        registrar_partida = import_module("perfil_datos").registrar_partida
     
         jugadores = self._estado.get("players", {})
         partida = self._estado.get("match", {})
@@ -197,8 +208,13 @@ class Juego:
 
         estado = jugador.get("status")
 
+        if jugador.get("frozen") and jugador.get("trap"):
+            return f"Atrapado: {jugador['trap']} ({jugador.get('trap_remaining', 0):.1f}s)", COLOR_INMOVILIZADO
         if estado in ("stunned", "frozen") or jugador.get("frozen"):
             return "Inmovilizado", COLOR_INMOVILIZADO
+
+        if jugador.get("slowed"):
+            return f"Ralentizado ({jugador.get('slow_remaining', 0):.1f}s)", COLOR_INMOVILIZADO
 
         if jugador.get("interacting"):
             return "Extrayendo energia", COLOR_EXTRAYENDO
@@ -239,6 +255,23 @@ class Juego:
             )
             pygame.draw.rect(pantalla, COLOR_OBSTACULO, rectangulo)
 
+        for puerta in self._estado.get("doors", []):
+            rectangulo = pygame.Rect(int(puerta["x"]), int(puerta["y"]),
+                                    int(puerta["width"]), int(puerta["height"]))
+            if puerta["open"]:
+                pygame.draw.rect(pantalla, COLOR_PUERTA_ABIERTA, rectangulo, 3)
+            else:
+                pygame.draw.rect(pantalla, COLOR_PUERTA_CERRADA, rectangulo)
+
+        for trampa in self._estado.get("traps", []):
+            rectangulo = pygame.Rect(int(trampa["x"]), int(trampa["y"]),
+                                    int(trampa["width"]), int(trampa["height"]))
+            color = COLORES_TRAMPA.get(trampa["type"], COLOR_OBSTACULO)
+            pygame.draw.rect(pantalla, color, rectangulo)
+            pygame.draw.rect(pantalla, COLOR_TEXTO, rectangulo, 2)
+            letra = fuente.render(LETRAS_TRAMPA.get(trampa["type"], "?"), True, COLOR_TEXTO)
+            pantalla.blit(letra, letra.get_rect(center=rectangulo.center))
+
         colores = {"red": COLOR_ROJO, "blue": COLOR_AZUL}
         reactor = self._estado.get("reactor")
         if reactor is not None:
@@ -261,7 +294,7 @@ class Juego:
                 jugador["y"] + TAMANO_JUGADOR / 2,
             )
             direccion = pygame.Vector2(jugador.get("dir_x", 1), jugador.get("dir_y", 0))
-            self._renderizador_avatares.dibujar(pantalla=pantalla,centro=centro,direccion=direccion,avatar=self._avatares.get(nombre, "avatar_1"), tamano=TAMANO_JUGADOR,)
+            self._renderizador_avatares.dibujar(pantalla=pantalla,centro=centro,direccion=direccion,avatar=self._avatares.get(nombre, "avatar_1"), tamano=TAMANO_JUGADOR, invertido=jugador.get("inverted", False),)
             deseada = pygame.Vector2(jugador.get("move_x", 0), jugador.get("move_y", 0))
             if deseada.length_squared():
                 deseada = deseada.normalize()
