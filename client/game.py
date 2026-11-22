@@ -96,7 +96,7 @@ class Juego:
         except pygame.error as error:
             self._control = None
             self._mensaje = f"Control no disponible; se usa teclado: {error}"
-        pygame.display.set_caption("Battle Arena - Dos jugadores")
+        pygame.display.set_caption("Battle Arena Challenge - Cliente multijugador")
         fuente = pygame.font.SysFont(None, 28)
         reloj = pygame.time.Clock()
         activo = True
