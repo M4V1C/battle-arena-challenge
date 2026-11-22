@@ -95,6 +95,25 @@ MAPA_INICIAL = (
     Obstaculo(400, 600, 40, 200),
 )
 PUERTAS_INICIALES = (Puerta("puerta_central", Obstaculo(600, 400, 40, 120)),)
+MAPA_LABERINTO = (
+    Obstaculo(300, 100, 40, 300),
+    Obstaculo(300, 500, 40, 250),
+    Obstaculo(500, 250, 300, 40),
+    Obstaculo(500, 600, 300, 40),
+    Obstaculo(1000, 100, 40, 300),
+    Obstaculo(1000, 500, 40, 250),
+    Obstaculo(1200, 250, 200, 40),
+    Obstaculo(1200, 600, 200, 40),
+)
+
+PUERTAS_LABERINTO = (
+    Puerta("puerta_laberinto_1", Obstaculo(780, 250, 40, 120)),
+    Puerta("puerta_laberinto_2", Obstaculo(1000, 400, 40, 100)),
+)
+ESCENARIOS = {
+    "arena_clasica": (MAPA_INICIAL, PUERTAS_INICIALES),
+    "laberinto": (MAPA_LABERINTO, PUERTAS_LABERINTO),
+}
 TIPOS_TRAMPA = (("jaula", 2.5), ("arenas", 1.75), ("inversion", 1.25))
 
 # Mantiene y actualiza las posiciones compartidas de ambos jugadores
@@ -161,6 +180,20 @@ class EstadoJuego:
     def iniciar_partida(self, configuracion: Any) -> dict[str, Any]:
         with self._bloqueo:
             return self._iniciar_bloqueado(configuracion)
+
+    def _seleccionar_escenario(self, escenario: str) -> None:
+        if escenario not in ESCENARIOS:
+            raise Rechazo(
+                "invalid_scenario",
+                "El escenario seleccionado no existe."
+            )
+
+        obstaculos, puertas = ESCENARIOS[escenario]
+
+        self._obstaculos = obstaculos
+        self._puertas = puertas
+        self._solidos = self._obstaculos + (self._reactor,)
+        self._trampas_fijas = None
 
     # Arranca la partida; el llamador ya posee el bloqueo.
     def _iniciar_bloqueado(self, configuracion: Any) -> dict[str, Any]:
@@ -230,16 +263,32 @@ class EstadoJuego:
 
     # Inicia la partida a peticion de un puesto. Solo la inicia el anfitrion,
     # con los dos jugadores conectados y sin otra partida en curso.
-    def iniciar_por(self, puesto: str, configuracion: Any) -> dict[str, Any]:
+    def iniciar_por(
+        self,
+        puesto: str,
+        configuracion: Any,
+        escenario: str = "arena_clasica",
+    ) -> dict[str, Any]:
         with self._bloqueo:
             if puesto != ANFITRION:
-                raise Rechazo("not_host", "Solo el anfitrión puede iniciar la partida.")
+                raise Rechazo(
+                    "not_host",
+                    "Solo el anfitrión puede iniciar la partida."
+                )
+
             if self._iniciada and not self._terminada:
-                raise Rechazo("match_in_progress", "La partida ya está en curso.")
+                raise Rechazo(
+                    "match_in_progress",
+                    "La partida ya está en curso."
+                )
+
             if not all(self._conectados.values()):
                 raise Rechazo(
-                    "waiting_for_players", "Falta que se conecte el otro jugador."
+                    "waiting_for_players",
+                    "Falta que se conecte el otro jugador."
                 )
+
+            self._seleccionar_escenario(escenario)
             return self._iniciar_bloqueado(configuracion)
 
     # Registra un rechazo para un puesto en state.notifications y devuelve el estado.
