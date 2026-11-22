@@ -54,7 +54,9 @@ def avisos_nuevos(estado: dict, ultimo_id: int, puesto: str) -> tuple[list[dict]
 
 def etiqueta_jugador(jugador: dict) -> str:
     if jugador.get("frozen"):
-        return "inmovilizado"
+        return f"trampa {jugador.get('trap')} {jugador.get('trap_remaining', 0):.1f}s"
+    if jugador.get("slowed"):
+        return f"ralentizado {jugador.get('slow_remaining', 0):.1f}s"
     if jugador.get("extracting"):
         return "extrayendo"
     return "normal"
@@ -93,6 +95,19 @@ def dibujar(pygame, pantalla, fuente, estado: dict, puesto: str, avisos: list) -
     for o in estado["obstacles"]:
         pygame.draw.rect(pantalla, (110, 110, 125),
                          (px(o["x"]), BARRA + px(o["y"]), px(o["width"]), px(o["height"])))
+    for puerta in estado.get("doors", []):
+        caja = (px(puerta["x"]), BARRA + px(puerta["y"]),
+                px(puerta["width"]), px(puerta["height"]))
+        pygame.draw.rect(pantalla, (90, 215, 130) if puerta["open"] else (230, 145, 65),
+                         caja, 2 if puerta["open"] else 0)
+    colores_trampa = {"jaula": (215, 75, 80), "arenas": (180, 145, 65),
+                      "inversion": (145, 95, 220)}
+    for trampa in estado.get("traps", []):
+        caja = (px(trampa["x"]), BARRA + px(trampa["y"]),
+                px(trampa["width"]), px(trampa["height"]))
+        pygame.draw.rect(pantalla, colores_trampa.get(trampa["type"], (110, 110, 125)), caja)
+        marca = fuente.render(trampa["type"][0].upper(), True, (255, 255, 255))
+        pantalla.blit(marca, marca.get_rect(center=(caja[0] + caja[2] // 2, caja[1] + caja[3] // 2)))
     centro = (px(reactor["x"] + reactor["size"] / 2), BARRA + px(reactor["y"] + reactor["size"] / 2))
     color_anillo = COLORES.get(operador, (250, 210, 40))
     pygame.draw.circle(pantalla, color_anillo, centro, px(reactor["ring_radius"]), 2)
@@ -104,6 +119,10 @@ def dibujar(pygame, pantalla, fuente, estado: dict, puesto: str, avisos: list) -
     for nombre, j in jugadores.items():
         caja = (px(j["x"]), BARRA + px(j["y"]), tamano, tamano)
         pygame.draw.rect(pantalla, COLORES[nombre], caja)
+        if j.get("inverted"):
+            pygame.draw.line(pantalla, (255, 255, 255),
+                             (caja[0] + tamano // 2, caja[1] + tamano - 3),
+                             (caja[0] + tamano // 2, caja[1] + 3), 3)
         if nombre == puesto:
             pygame.draw.rect(pantalla, (255, 255, 255), caja, 3)
         if j["interacting"]:

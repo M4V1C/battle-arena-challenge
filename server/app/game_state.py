@@ -1,6 +1,7 @@
 """Estado autoritativo y reglas de movimiento de la arena."""
 
 import math
+import random
 import threading
 from dataclasses import dataclass, field
 from typing import Any
@@ -38,6 +39,10 @@ class Jugador:
     mov_y: float = 0.0
     tiempo_interaccion: float = 0.0
     puntos: int = 0
+    bloqueo_restante: float = 0.0
+    lentitud_restante: float = 0.0
+    trampa_actual: str | None = None
+    trampas_ocupadas: set[str] = field(default_factory=set)
     # Ãšltimo contador de pulsaciones procesado por acciÃ³n.
     contadores: dict[str, int] = field(default_factory=lambda: dict.fromkeys(ACCIONES, 0))
 
@@ -68,6 +73,20 @@ class Obstaculo:
             and y + tamano > self.y
         )
 
+
+@dataclass(frozen=True)
+class Puerta:
+    id: str
+    zona: Obstaculo
+
+
+@dataclass(frozen=True)
+class Trampa:
+    id: str
+    tipo: str
+    zona: Obstaculo
+    duracion: float
+
 # ObstÃ¡culos iniciales en la arena.
 MAPA_INICIAL = (
     Obstaculo(300, 250, 200, 40),
@@ -75,6 +94,8 @@ MAPA_INICIAL = (
     Obstaculo(1200, 500, 250, 40),
     Obstaculo(400, 600, 40, 200),
 )
+PUERTAS_INICIALES = (Puerta("puerta_central", Obstaculo(600, 400, 40, 120)),)
+TIPOS_TRAMPA = (("jaula", 2.5), ("arenas", 1.75), ("inversion", 1.25))
 
 # Mantiene y actualiza las posiciones compartidas de ambos jugadores
 class EstadoJuego:
@@ -89,17 +110,27 @@ class EstadoJuego:
     RADIO_REACTOR = 1.5 * TAMANO_JUGADOR  # Anillo de diÃ¡metro 3x el hitbox.
     VELOCIDAD_GIRO = math.radians(360)
     ZONA_MUERTA = 0.15
+    RADIO_PUERTA = 90.0
 
     # Crea la arena con las posiciones iniciales de rojo y azul
     def __init__(
         self,
         obstaculos: tuple[Obstaculo, ...] = MAPA_INICIAL,
         reglas: Reglas | None = None,
+        puertas: tuple[Puerta, ...] | None = None,
+        trampas: tuple[Trampa, ...] | None = None,
+        semilla: int | None = None,
     ):
         self._reglas = reglas if reglas is not None else cargar_reglas()
 
         self._configuracion = dict(CONFIGURACION_INICIAL)
         self._obstaculos = tuple(obstaculos)
+        # Un mapa personalizado no recibe elementos del mapa inicial por sorpresa.
+        self._puertas = tuple(PUERTAS_INICIALES if obstaculos is MAPA_INICIAL else ()) if puertas is None else tuple(puertas)
+        self._trampas_fijas = None if trampas is None and obstaculos is MAPA_INICIAL else tuple(trampas or ())
+        self._azar = random.Random(semilla)
+        self._puertas_abiertas: dict[str, bool] = {}
+        self._trampas: tuple[Trampa, ...] = ()
         self._reactor = Obstaculo(
             (self.ANCHO - self.TAMANO_JUGADOR) / 2,
             (self.ALTO - self.TAMANO_JUGADOR) / 2,
@@ -257,6 +288,8 @@ class EstadoJuego:
         self._limite_tiempo = None
         self._operador_reactor = None
         self._tiempo_reactor = 0.0
+        self._puertas_abiertas = {puerta.id: False for puerta in self._puertas}
+        self._trampas = self._generar_trampas() if self._trampas_fijas is None else self._trampas_fijas
         anteriores = self._jugadores
         self._jugadores = {
             "red": Jugador(100, 100, dir_x=1.0),
@@ -278,6 +311,60 @@ class EstadoJuego:
             "red": (0, 0),
             "blue": (0, 0),
         }
+
+    def _generar_trampas(self) -> tuple[Trampa, ...]:
+        """Elige tres celdas libres y alejadas de los puntos de aparición."""
+        candidatos = []
+        for y in range(160, 761, 100):
+            for x in range(200, 1401, 100):
+                zona = Obstaculo(x, y, 64, 64)
+                centro = (x + 32, y + 32)
+                if any(
+                    Obstaculo(solido.x - 40, solido.y - 40,
+                              solido.ancho + 80, solido.alto + 80).colisiona(x, y, 64)
+                    for solido in self._solidos + tuple(p.zona for p in self._puertas)
+                ):
+                    continue
+                if math.dist(centro, (800, 450)) < 155:
+                    continue
+                if any(math.dist(centro, aparicion) < 170 for aparicion in ((120, 120), (1480, 780))):
+                    continue
+                candidatos.append(zona)
+        if len(candidatos) < len(TIPOS_TRAMPA):
+            raise ValueError("El mapa no tiene espacio para tres trampas.")
+        zonas = self._azar.sample(candidatos, len(TIPOS_TRAMPA))
+        return tuple(
+            Trampa(f"trampa_{tipo}", tipo, zona, duracion)
+            for (tipo, duracion), zona in zip(TIPOS_TRAMPA, zonas)
+        )
+
+    def _solidos_actuales(self) -> tuple[Obstaculo, ...]:
+        return self._solidos + tuple(
+            puerta.zona for puerta in self._puertas
+            if not self._puertas_abiertas[puerta.id]
+        )
+
+    def _activar_trampas(self, jugador: Jugador) -> None:
+        ocupadas = {
+            trampa.id for trampa in self._trampas
+            if trampa.zona.colisiona(jugador.x, jugador.y, self.TAMANO_JUGADOR)
+        }
+        nuevas = ocupadas - jugador.trampas_ocupadas
+        jugador.trampas_ocupadas = ocupadas
+        if jugador.bloqueo_restante > 0:
+            return
+        for trampa in self._trampas:
+            if trampa.id in nuevas:
+                jugador.bloqueo_restante = trampa.duracion
+                jugador.trampa_actual = trampa.tipo
+                if trampa.tipo == "arenas":
+                    jugador.lentitud_restante = trampa.duracion + 2.0
+                if self._operador_reactor is not None:
+                    for nombre, candidato in self._jugadores.items():
+                        if candidato is jugador and self._operador_reactor == nombre:
+                            self._operador_reactor = None
+                            break
+                break
 
     def _iniciar_prorroga(self) -> None:
         puntos = {
@@ -357,7 +444,20 @@ class EstadoJuego:
     # Ejecuta la acciÃ³n correspondiente a un jugador, como interactuar con el reactor o disparar.
     def _ejecutar_accion(self, nombre: str, accion: str) -> None:
         jugador = self._jugadores[nombre]
+        if jugador.bloqueo_restante > 0:
+            self._rechazar(nombre, "player_trapped", "No puedes actuar mientras estás atrapado.")
+            return
         if accion == "interact":
+            puerta = self._puerta_cercana(jugador)
+            if puerta is not None:
+                if self._puertas_abiertas[puerta.id] and any(
+                    puerta.zona.colisiona(otro.x, otro.y, self.TAMANO_JUGADOR)
+                    for otro in self._jugadores.values()
+                ):
+                    self._rechazar(nombre, "door_occupied", "La puerta no puede cerrarse sobre un jugador.")
+                    return
+                self._puertas_abiertas[puerta.id] = not self._puertas_abiertas[puerta.id]
+                return
             if self._operador_reactor == nombre:
                 self._operador_reactor = None
             elif self._operador_reactor is not None:
@@ -384,6 +484,18 @@ class EstadoJuego:
                     nombre,
                 )
             )
+
+    def _puerta_cercana(self, jugador: Jugador) -> Puerta | None:
+        centro = (jugador.x + self.TAMANO_JUGADOR / 2,
+                  jugador.y + self.TAMANO_JUGADOR / 2)
+        cercanas = [
+            puerta for puerta in self._puertas
+            if math.dist(centro, (puerta.zona.x + puerta.zona.ancho / 2,
+                                  puerta.zona.y + puerta.zona.alto / 2)) <= self.RADIO_PUERTA
+        ]
+        return min(cercanas, key=lambda p: math.dist(
+            centro, (p.zona.x + p.zona.ancho / 2, p.zona.y + p.zona.alto / 2)
+        )) if cercanas else None
 
     # Verifica si un jugador estÃ¡ dentro del rango de interacciÃ³n con el reactor.
     def _en_rango_reactor(self, jugador: Jugador) -> bool:
@@ -425,8 +537,16 @@ class EstadoJuego:
             self._tiempo_partida += delta_t
             for nombre, (dx, dy) in self._entradas.items():
                 jugador = self._jugadores[nombre]
+                tiempo_bloqueado = min(delta_t, jugador.bloqueo_restante)
+                tiempo_lento = jugador.lentitud_restante
+                jugador.bloqueo_restante = max(0.0, jugador.bloqueo_restante - delta_t)
+                jugador.lentitud_restante = max(0.0, jugador.lentitud_restante - delta_t)
+                if jugador.bloqueo_restante == 0:
+                    jugador.trampa_actual = None
                 if nombre != self._operador_reactor:
-                    self._mover_girando(jugador, math.hypot(dx, dy), delta_t)
+                    intensidad = math.hypot(dx, dy) * (0.5 if tiempo_lento > 0 else 1.0)
+                    self._mover_girando(jugador, intensidad, delta_t - tiempo_bloqueado)
+                self._activar_trampas(jugador)
             for jugador in self._jugadores.values():
                 jugador.tiempo_interaccion = max(0.0, jugador.tiempo_interaccion - delta_t)
             if self._operador_reactor is not None:
@@ -484,12 +604,17 @@ class EstadoJuego:
         )
         paso_t = duracion / pasos
         for _ in range(pasos):
+            if jugador.bloqueo_restante > 0:
+                break
             siguiente = angulo + velocidad_angular * paso_t
             paso_x = velocidad * (math.sin(siguiente) - math.sin(angulo)) / velocidad_angular
             paso_y = velocidad * (math.cos(angulo) - math.cos(siguiente)) / velocidad_angular
             self._mover_x(jugador, paso_x)
             self._mover_y(jugador, paso_y)
             angulo = siguiente
+        if jugador.bloqueo_restante > 0:
+            jugador.dir_x, jugador.dir_y = math.cos(angulo), math.sin(angulo)
+            return
         if abs(diferencia) <= self.VELOCIDAD_GIRO * delta_t + 1e-9:
             jugador.dir_x, jugador.dir_y = jugador.mov_x, jugador.mov_y
         else:
@@ -497,10 +622,12 @@ class EstadoJuego:
         self._mover_recto(jugador, velocidad * max(0.0, delta_t - duracion))
 
     def _mover_recto(self, jugador: Jugador, distancia: float) -> None:
-        if distancia <= 0:
+        if distancia <= 0 or jugador.bloqueo_restante > 0:
             return
         pasos = max(1, math.ceil(distancia / (self.TAMANO_JUGADOR / 2)))
         for _ in range(pasos):
+            if jugador.bloqueo_restante > 0:
+                break
             self._mover_x(jugador, jugador.dir_x * distancia / pasos)
             self._mover_y(jugador, jugador.dir_y * distancia / pasos)
 
@@ -520,7 +647,7 @@ class EstadoJuego:
                 or proyectil.y + tamano > self.ALTO
             ):
                 return False
-            if any(o.colisiona(proyectil.x, proyectil.y, tamano) for o in self._solidos):
+            if any(o.colisiona(proyectil.x, proyectil.y, tamano) for o in self._solidos_actuales()):
                 return False
             for nombre, jugador in self._jugadores.items():
                 if nombre != proyectil.dueno and Obstaculo(
@@ -531,25 +658,31 @@ class EstadoJuego:
 
     # Mueve al jugador en la direcciÃ³n x, manejando colisiones con los lÃ­mites del mapa y obstÃ¡culos sÃ³lidos.
     def _mover_x(self, jugador: Jugador, delta: float) -> None:
+        if jugador.bloqueo_restante > 0:
+            return
         tamano = self.TAMANO_JUGADOR
         jugador.x = min(max(jugador.x + delta, 0), self.ANCHO - tamano)
-        for obstaculo in self._solidos:
+        for obstaculo in self._solidos_actuales():
             if obstaculo.colisiona(jugador.x, jugador.y, tamano):
                 if delta > 0:
                     jugador.x = obstaculo.x - tamano
                 else:
                     jugador.x = obstaculo.x + obstaculo.ancho
+        self._activar_trampas(jugador)
 
     # Mueve al jugador en la direcciÃ³n y, manejando colisiones con los lÃ­mites del mapa y obstÃ¡culos sÃ³lidos.
     def _mover_y(self, jugador: Jugador, delta: float) -> None:
+        if jugador.bloqueo_restante > 0:
+            return
         tamano = self.TAMANO_JUGADOR
         jugador.y = min(max(jugador.y + delta, 0), self.ALTO - tamano)
-        for obstaculo in self._solidos:
+        for obstaculo in self._solidos_actuales():
             if obstaculo.colisiona(jugador.x, jugador.y, tamano):
                 if delta > 0:
                     jugador.y = obstaculo.y - tamano
                 else:
                     jugador.y = obstaculo.y + obstaculo.alto
+        self._activar_trampas(jugador)
 
     # Detiene a los jugadores al perderse la conexiÃ³n del cliente, reiniciando sus entradas y contadores.
     def detener_movimiento(self) -> None:
@@ -593,7 +726,12 @@ class EstadoJuego:
                     "move_x": jugador.mov_x,
                     "move_y": jugador.mov_y,
                     "interacting": jugador.tiempo_interaccion > 0,
-                    "frozen": False,
+                    "frozen": jugador.bloqueo_restante > 0,
+                    "trap": jugador.trampa_actual,
+                    "trap_remaining": jugador.bloqueo_restante,
+                    "inverted": jugador.trampa_actual == "inversion",
+                    "slowed": jugador.lentitud_restante > 0 and jugador.bloqueo_restante == 0,
+                    "slow_remaining": max(0.0, jugador.lentitud_restante - jugador.bloqueo_restante),
                     "extracting": nombre == self._operador_reactor,
                     "score": jugador.puntos,
                     "username": self._puestos[nombre],     # nuevo
@@ -617,6 +755,18 @@ class EstadoJuego:
             "obstacles": [
                 {"x": o.x, "y": o.y, "width": o.ancho, "height": o.alto}
                 for o in self._obstaculos],
+            "doors": [
+                {"id": p.id, "x": p.zona.x, "y": p.zona.y,
+                 "width": p.zona.ancho, "height": p.zona.alto,
+                 "open": self._puertas_abiertas[p.id]}
+                for p in self._puertas
+            ],
+            "traps": [
+                {"id": t.id, "type": t.tipo, "x": t.zona.x, "y": t.zona.y,
+                 "width": t.zona.ancho, "height": t.zona.alto,
+                 "duration": t.duracion}
+                for t in self._trampas
+            ],
             "notifications": list(self._notificaciones),   # nuevo
         }
 
