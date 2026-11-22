@@ -6,7 +6,7 @@ import pytest
 
 from app.game_config import AlmacenConfiguracion
 from app.game_state import EstadoJuego
-from app.socket_server import manejar_cliente, procesar_mensaje
+from app.socket_server import SesionCliente, manejar_cliente, procesar_mensaje
 
 
 def test_reloj_no_avanza_antes_de_empezar():
@@ -62,7 +62,11 @@ def test_configuracion_del_protocolo_se_aplica_al_iniciar(tmp_path):
     configuracion = {"condition": "time", "value": 2, "sensitivity": 3}
     respuesta = json.loads(procesar_mensaje(json.dumps({"type": "save_config", "config": configuracion}), juego, almacen))
     assert respuesta == {"type": "config", "config": configuracion}
-    estado = json.loads(procesar_mensaje('{"type":"start"}', juego, almacen))
+    anfitrion, invitado = SesionCliente(), SesionCliente()
+    for sesion, token in ((anfitrion, "ana"), (invitado, "beto")):
+        unirse = json.dumps({"type": "join", "token": token})
+        assert json.loads(procesar_mensaje(unirse, juego, almacen, sesion=sesion))["type"] == "joined"
+    estado = json.loads(procesar_mensaje('{"type":"start"}', juego, almacen, sesion=anfitrion))
     assert estado["match"]["condition"] == "time"
     assert estado["match"]["value"] == 2
     almacen.guardar({"condition": "points", "value": 1})

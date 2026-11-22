@@ -6,6 +6,7 @@ import threading
 import pytest
 
 from app.game_state import EstadoJuego
+from tests.helpers import partida_iniciada
 from app.socket_server import crear_socket_servidor, procesar_mensaje, servir
 
 
@@ -27,7 +28,7 @@ def test_estado_inicial_tiene_dos_jugadores():
 
 def test_mover_actualiza_los_dos_jugadores_independientemente():
     """Las entradas producen movimiento independiente para cada jugador."""
-    juego = EstadoJuego()
+    juego = partida_iniciada()
 
     juego.actualizar_entradas(
         {
@@ -49,7 +50,7 @@ def test_mover_actualiza_los_dos_jugadores_independientemente():
 
 def test_velocidad_no_depende_de_la_frecuencia_de_actualizacion():
     """El mismo tiempo simulado produce la misma distancia en varios ticks."""
-    juego = EstadoJuego()
+    juego = partida_iniciada()
     juego.actualizar_entradas(
         {
             "red": {"x": 0, "y": 1},
@@ -61,7 +62,7 @@ def test_velocidad_no_depende_de_la_frecuencia_de_actualizacion():
         juego.avanzar(1 / 60)
     estado_30_fps = juego.estado()["players"]["red"]["x"]
 
-    otro_juego = EstadoJuego()
+    otro_juego = partida_iniciada()
     otro_juego.actualizar_entradas(
         {
             "red": {"x": 0, "y": 1},
@@ -79,7 +80,7 @@ def test_velocidad_no_depende_de_la_frecuencia_de_actualizacion():
 
 def test_movimiento_diagonal_mantiene_la_misma_velocidad():
     """La normalización evita que desplazarse en diagonal sea más rápido."""
-    juego = EstadoJuego()
+    juego = partida_iniciada()
     juego.actualizar_entradas(
         {
             "red": {"x": 1, "y": 1},
@@ -97,7 +98,7 @@ def test_movimiento_diagonal_mantiene_la_misma_velocidad():
 
 def test_desconectar_detiene_el_movimiento():
     """El servidor deja de mover a los jugadores al cerrar el cliente."""
-    juego = EstadoJuego()
+    juego = partida_iniciada()
     juego.actualizar_entradas(
         {
             "red": {"x": 1, "y": 0},
@@ -113,7 +114,7 @@ def test_desconectar_detiene_el_movimiento():
 
 def test_movimientos_concurrentes_no_pierden_actualizaciones():
     """Las actualizaciones de hilos distintos se aplican sin interferirse."""
-    juego = EstadoJuego()
+    juego = partida_iniciada()
 
     def mover_rojo():
         for _ in range(20):
@@ -148,7 +149,7 @@ def test_movimientos_concurrentes_no_pierden_actualizaciones():
 
 def test_mover_limita_jugadores_a_la_arena():
     """Los jugadores no pueden salir de los límites de la ventana."""
-    juego = EstadoJuego()
+    juego = partida_iniciada()
     juego._jugadores["red"].x, juego._jugadores["red"].y = 0, 0
     juego._jugadores["red"].dir_x, juego._jugadores["red"].dir_y = -1, 0
     juego._jugadores["blue"].x, juego._jugadores["blue"].y = 1560, 860
@@ -178,7 +179,7 @@ def test_mover_limita_jugadores_a_la_arena():
 )
 def test_mover_rechaza_entradas_invalidas(entrada):
     """Las direcciones mal formadas no modifican el estado del juego."""
-    juego = EstadoJuego()
+    juego = partida_iniciada()
 
     with pytest.raises(ValueError):
         juego.actualizar_entradas(entrada)

@@ -5,6 +5,7 @@ from network import ConexionServidor
 from gestion_usuarios import GestionUsuarios
 from avatar_selection import PantallaAvatares
 from avatar_repository import RepositorioAvatares
+from scenario_selection import SelectorEscenarios
 
 # Definición de la interfaz de usuario y la lógica de las pantallas del juego.
 VOLVER = pygame.Rect(ANCHO - 80, 16, 56, 48)
@@ -41,6 +42,7 @@ class Aplicacion:
         self._configuracion_cargada = False
         self._confirmacion = ""
         self._pantalla_avatares = PantallaAvatares(RepositorioAvatares(),{"red": self.usuarios.jugador_rojo,"blue": self.usuarios.jugador_azul,},)
+        self._selector_escenarios = SelectorEscenarios()
 
     def _cerrar_configuracion(self) -> None:
         if self._conexion_config is not None:
@@ -65,7 +67,7 @@ class Aplicacion:
     def actualizar_configuracion(self) -> None:
         if self._conexion_config is None:
             return
-        respuesta = self._conexion_config.obtener_estado()
+        respuesta = self._conexion_config.obtener_mensaje()
         if respuesta is None:
             return
         guardando = self._configuracion_cargada
@@ -128,6 +130,21 @@ class Aplicacion:
 
     # Define el botón de volver en la interfaz.
     def botones(self) -> list[tuple[pygame.Rect, str, str]]:
+
+        if self.pantalla_actual == "escenarios":
+            return [
+                (
+                    pygame.Rect(
+                        ANCHO // 2 - 160,
+                        ALTO // 2 + 170,
+                        320,
+                        64,
+                    ),
+                    "Confirmar escenario",
+                    "confirmar_escenario",
+                )
+            ]
+
         opciones = {
             "login": [
                 ("Continuar", "inicio"),
@@ -140,6 +157,9 @@ class Aplicacion:
             ],
             "avatares": [],
             "configuracion": [],
+            "escenarios": [
+                ("Confirmar escenario", "confirmar_escenario"),
+            ],
         }[self.pantalla_actual]
 
         altura = len(opciones) * 64 + max(0, len(opciones) - 1) * 20
@@ -169,6 +189,8 @@ class Aplicacion:
                 self.port,
                 self.usuarios.jugador_rojo,
                 self.usuarios.jugador_azul,
+                token=self.usuarios.token,
+                escenario=self._selector_escenarios.seleccionado,
             ).ejecutar()
         except (OSError, ValueError) as error:
             self.error = str(error)
@@ -211,13 +233,16 @@ class Aplicacion:
 
                 self.error = ""
                 return
+            if self.pantalla_actual == "escenarios": #seleccionar un escenario haciendo clic en su tarjeta.
+                self._selector_escenarios.procesar_evento(evento, ANCHO, ALTO)
             for rectangulo, _, destino in self.botones():
                 if rectangulo.collidepoint(evento.pos):
                     self.error = ""
                     if destino == "juego":
-                        if self.usuarios.preparar_segundo_jugador():
-                            self.esperando_segundo_jugador = True
-                            self.pantalla_actual = "login"
+                        self.pantalla_actual = "escenarios"
+
+                    elif destino == "confirmar_escenario":
+                        self._iniciar_juego()
                     elif destino == "configuracion":
                         self._abrir_configuracion()
                     elif destino == "perfil":
@@ -273,7 +298,7 @@ class Aplicacion:
             self.usuarios.dibujar()
             return    
         pantalla.fill(FONDO)
-        titulos = {"avatares": "Avatares","login": "Login", "inicio": "Inicio", "configuracion": "Configuracion"}
+        titulos = {"avatares": "Avatares","login": "Login", "inicio": "Inicio", "configuracion": "Configuracion","escenarios": "Seleccion de escenario",}
         titulo = fuente.render(titulos[self.pantalla_actual], True, COLOR_TEXTO)
         pantalla.blit(titulo, titulo.get_rect(center=(ANCHO // 2, 180)))
         if self.pantalla_actual == "configuracion":
@@ -292,6 +317,8 @@ class Aplicacion:
             for indice, linea in enumerate(lineas[:3]):
                 texto = fuente.render(linea, True, COLOR_ERROR)
                 pantalla.blit(texto, (40, ALTO - 140 + indice * 32))
+        if self.pantalla_actual == "escenarios":
+            self._selector_escenarios.dibujar(pantalla, fuente)
 
     # Ejecuta el bucle principal de la aplicación, manejando eventos y dibujando la interfaz.
     def ejecutar(self) -> None:

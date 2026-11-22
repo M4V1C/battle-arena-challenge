@@ -1,5 +1,9 @@
 # Ventana Pygame y controles locales para los dos jugadores.
 
+from importlib import import_module
+from pathlib import Path
+import sys
+
 import pygame
 
 from controller import ControlSDL
@@ -8,6 +12,7 @@ from network import ConexionServidor
 from avatar_repository import RepositorioAvatares
 from avatar_renderer import RenderizadorAvatares
 from victory_screen import PantallaVictoria
+from hud_notifications import NotificacionesHUD
 
 ANCHO, ALTO = 1600, 900             # Dimensiones de la ventana de juego
 TAMANO_JUGADOR = 40                 # Tamaño visual de cada jugador en la ventana
@@ -15,6 +20,10 @@ FONDO = (30, 30, 40)                # Color de fondo de la ventana de juego
 COLOR_ROJO = (220, 55, 55)          # Color del jugador rojo
 COLOR_AZUL = (55, 110, 230)         # Color del jugador azul
 COLOR_OBSTACULO = (110, 110, 125)   # Color de los obstáculos
+COLOR_PUERTA_CERRADA = (230, 145, 65)
+COLOR_PUERTA_ABIERTA = (90, 215, 130)
+COLORES_TRAMPA = {"jaula": (215, 75, 80), "arenas": (180, 145, 65), "inversion": (145, 95, 220)}
+LETRAS_TRAMPA = {"jaula": "J", "arenas": "A", "inversion": "I"}
 COLOR_INTERACCION = (250, 220, 50)  # Color del círculo de interacción
 COLOR_PROYECTIL = (255, 240, 150)   # Color de los disparos
 COLOR_REACTOR = (250, 210, 40)      # Color del reactor y su anillo
@@ -22,14 +31,33 @@ COLOR_CONGELADO = (170, 230, 255)   # Contorno de un jugador congelado en el rea
 COLOR_TEXTO = (240, 240, 240)       # Color del texto en la ventana de juego
 COLOR_ERROR = (255, 150, 150)       # Color de los mensajes de error en la ventana de juego
 COLOR_DIRECCION_DESEADA = (185, 195, 205)
+COLOR_NORMAL = (120, 220, 150)
+COLOR_INMOVILIZADO = (255, 160, 100)
+COLOR_EXTRAYENDO = (250, 220, 50)
 INTERVALO_ENTRADAS = 1 / 60         # Intervalo de tiempo entre envíos de entradas al servidor (segundos)
 
 # Clase principal que maneja la lógica del juego y la interacción con el servidor.
 class Juego:
 
     # Inicializa la conexión con el servidor y el estado visual del juego.
-    def __init__(self,host: str,port: int,jugador_rojo: str | None = None,jugador_azul: str | None = None,):
-        self._conexion = ConexionServidor(host, port)
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        jugador_rojo: str | None = None,
+        jugador_azul: str | None = None,
+        token: str | None = None,
+        escenario: str = "arena_clasica",
+    ):
+        if not token:
+            raise ValueError("Se necesita iniciar sesión para conectarse al servidor.")
+
+        self._conexion = ConexionServidor(
+            host,
+            port,
+            solicitud_inicial={"type": "join", "token": token},
+        )
+        self._escenario = escenario
         self._nombres = {"red": jugador_rojo or "Rojo","blue": jugador_azul or "Azul",
 }
         self._estado = {
@@ -39,55 +67,18 @@ class Juego:
             }
         }
         # Contadores acumulados de pulsaciones que se envían al servidor.
-        self._contadores = {
-            jugador: {"shoot": 0, "interact": 0} for jugador in ("red", "blue")
-        }
+        self._contadores = {"shoot": 0, "interact": 0}
         self._teclas: dict[str, dict[str, int]] = {}
         self._control: ControlSDL | None = None
         self._mensaje = f"Servidor: {host}:{port}"
+        self._notificaciones = NotificacionesHUD()
+        self._ultima_notificacion_id = 0
+        self._puesto: str | None = None
+        self._inicio_solicitado = False
 
         self._avatares = RepositorioAvatares().obtener()
         self._renderizador_avatares = RenderizadorAvatares()
 
-    def _registrar_resultado(self) -> None:
-        """Guarda las estadísticas de ambos jugadores al terminar la partida."""
-    
-        from perfil_datos import registrar_partida
-    
-        jugadores = self._estado.get("players", {})
-        partida = self._estado.get("match", {})
-
-        rojo = jugadores.get("red", {})
-        azul = jugadores.get("blue", {})
-
-        puntos_rojo = int(rojo.get("score", 0))
-        puntos_azul = int(azul.get("score", 0))
-        duracion = int(partida.get("elapsed", 0))
-
-        # No registrar resultados sin dos cuentas autenticadas.
-        if not self._nombres["red"] or not self._nombres["blue"]:
-            return
-
-        # El sistema de perfiles todavía no admite empates.
-        if puntos_rojo == puntos_azul:
-            return
-
-        resultado_rojo = "victoria" if puntos_rojo > puntos_azul else "derrota"
-        resultado_azul = "victoria" if puntos_azul > puntos_rojo else "derrota"
-
-        registrar_partida(
-            self._nombres["red"],
-            resultado_rojo,
-            puntos_rojo,
-            duracion,
-        )
-
-        registrar_partida(
-            self._nombres["blue"],
-            resultado_azul,
-            puntos_azul,
-            duracion,
-        )
         
     # Ejecuta el ciclo principal de Pygame y gestiona la comunicación con el servidor.
     def ejecutar(self) -> bool:
@@ -105,7 +96,7 @@ class Juego:
         except pygame.error as error:
             self._control = None
             self._mensaje = f"Control no disponible; se usa teclado: {error}"
-        pygame.display.set_caption("Battle Arena - Dos jugadores")
+        pygame.display.set_caption("Battle Arena Challenge - Cliente multijugador")
         fuente = pygame.font.SysFont(None, 28)
         reloj = pygame.time.Clock()
         activo = True
@@ -126,16 +117,42 @@ class Juego:
                         self._registrar_accion(evento.key)
 
                 ahora = pygame.time.get_ticks() / 1000
-                if ahora - tiempo_ultima_entrada >= INTERVALO_ENTRADAS:
-                    self._conexion.enviar_entradas(self._leer_controles())
+                if self._puesto is not None and ahora - tiempo_ultima_entrada >= INTERVALO_ENTRADAS:
+                    partida = self._estado.get("match", {})
+
+                    if partida.get("started") and not partida.get("finished"):
+                        self._conexion.enviar_entradas(self._leer_controles())
+                    else:
+                        self._conexion.enviar_mensaje({"type": "state"})
+
                     tiempo_ultima_entrada = ahora
 
+                mensaje = self._conexion.obtener_mensaje()
+
+                while mensaje is not None:
+                    if mensaje.get("type") == "joined":
+                        self._puesto = mensaje["slot"]
+                        self._ultima_notificacion_id = mensaje.get("last_notification_id", 0)
+                        self._mensaje = f"Conectado como {mensaje['username']} ({self._puesto})"
+                        self._conexion.enviar_mensaje({"type": "state"})
+
+                    elif mensaje.get("type") == "error":
+                        self._mensaje = f"Error de conexión: {mensaje.get('message', '')}"
+                    elif mensaje.get("type") == "reject":
+                        self._mensaje = mensaje.get("message", "Solicitud rechazada")
+
+                    mensaje = self._conexion.obtener_mensaje()
                 respuesta = self._conexion.obtener_estado()
                 if respuesta is not None:
                     if respuesta.get("type") == "state":
                         self._estado = respuesta
+                        self._procesar_notificaciones(respuesta)
+                        self._intentar_iniciar_partida(respuesta)
+                        for puesto in ("red", "blue"):
+                            usuario = respuesta.get("players", {}).get(puesto, {}).get("username")
+                            if usuario:
+                                self._nombres[puesto] = usuario
                         if respuesta.get("match", {}).get("finished"):
-                            self._registrar_resultado()
 
                             pantalla_victoria = PantallaVictoria(estado=self._estado,avatares=self._avatares, nombres=self._nombres,)
                             return pantalla_victoria.ejecutar()
@@ -152,38 +169,163 @@ class Juego:
                 self._control = None
             self._conexion.cerrar()
 
-    # Cuenta las pulsaciones de disparo e interacción de cada jugador.
+    # Cuenta las pulsaciones de disparo e interacción del jugador local.
     def _registrar_accion(self, tecla: int) -> None:
-        for jugador, teclas in self._teclas.items():
-            for accion in ("shoot", "interact"):
-                if tecla == teclas[accion]:
-                    self._contadores[jugador][accion] += 1
+        if self._puesto is None:
+            return
 
-    # Convierte el teclado en direcciones discretas y acciones para el servidor.
-    def _leer_controles(self) -> dict[str, dict[str, int]]:
+        teclas = self._teclas[self._puesto]
+
+        for accion in ("shoot", "interact"):
+            if tecla == teclas[accion]:
+                self._contadores[accion] += 1
+
+
+    # Obtiene los controles del jugador asignado por el servidor.
+    def _leer_controles(self) -> dict[str, int]:
+        teclas = self._teclas[self._puesto]
         presionadas = pygame.key.get_pressed()
+
         entradas = {
-            jugador: {
-                "x": int(presionadas[t["right"]]) - int(presionadas[t["left"]]),
-                "y": int(presionadas[t["down"]]) - int(presionadas[t["up"]]),
-                "interact": self._contadores[jugador]["interact"],
-                "shoot": self._contadores[jugador]["shoot"],
-            }
-            for jugador, t in self._teclas.items()
+            "x": int(presionadas[teclas["right"]]) - int(presionadas[teclas["left"]]),
+            "y": int(presionadas[teclas["down"]]) - int(presionadas[teclas["up"]]),
+            "interact": self._contadores["interact"],
+            "shoot": self._contadores["shoot"],
         }
+
         if self._control is None:
             return entradas
 
         control = self._control.leer()
+
         if control.x or control.y:
-            entradas["red"]["x"] = control.x
-            entradas["red"]["y"] = control.y
+            entradas["x"] = control.x
+            entradas["y"] = control.y
+
         if control.interactuar:
-            self._contadores["red"]["interact"] += 1
+            self._contadores["interact"] += 1
+
         if control.disparar:
-            self._contadores["red"]["shoot"] += 1
-        entradas["red"].update(self._contadores["red"])
+            self._contadores["shoot"] += 1
+
+        entradas.update(self._contadores)
         return entradas
+
+    def _intentar_iniciar_partida(self, estado: dict) -> None:
+        jugadores = estado.get("players", {})
+        partida = estado.get("match", {})
+
+        if (
+            self._puesto == "red"
+            and not self._inicio_solicitado
+            and not partida.get("started")
+            and not partida.get("finished")
+            and jugadores.get("red", {}).get("connected")
+            and jugadores.get("blue", {}).get("connected")
+        ):
+            self._inicio_solicitado = True
+            self._conexion.enviar_mensaje({
+                "type": "start",
+                "scenario": self._escenario,
+            })
+
+    # Muestra las notificaciones nuevas dirigidas al jugador local.
+    def _procesar_notificaciones(self, estado: dict) -> None:
+        colores = {
+            "info": (240, 240, 240),
+            "good": (120, 220, 150),
+            "warning": (255, 200, 100),
+            "danger": (255, 100, 100),
+        }
+
+        for notificacion in estado.get("notifications", []):
+            identificador = notificacion.get("id", 0)
+
+            if identificador <= self._ultima_notificacion_id:
+                continue
+            if (
+                self._puesto == "red"
+                and not estado.get("match", {}).get("started")
+                and notificacion.get("kind") == "reject"
+                and notificacion.get("for") == self._puesto
+                and notificacion.get("code") == "waiting_for_players"
+            ):
+                self._inicio_solicitado = False
+
+            destinatario = notificacion.get("for")
+            if destinatario is None or destinatario == self._puesto:
+                self._notificaciones.agregar(
+                    notificacion.get("message", ""),
+                    colores.get(notificacion.get("severity"), colores["info"]),
+                )
+
+            self._ultima_notificacion_id = identificador
+
+    @staticmethod
+    def _obtener_estado_jugador(jugador: dict) -> tuple[str, tuple[int, int, int]]:
+        """Devuelve el texto y color correspondientes al estado del jugador."""
+
+        estado = jugador.get("status")
+
+        if jugador.get("frozen") and jugador.get("trap"):
+            return f"Atrapado: {jugador['trap']} ({jugador.get('trap_remaining', 0):.1f}s)", COLOR_INMOVILIZADO
+        if estado in ("stunned", "frozen") or jugador.get("frozen"):
+            return "Inmovilizado", COLOR_INMOVILIZADO
+
+        if jugador.get("extracting"):
+            return "Extrayendo energia", COLOR_EXTRAYENDO
+
+        if jugador.get("slowed"):
+            return f"Ralentizado ({jugador.get('slow_remaining', 0):.1f}s)", COLOR_INMOVILIZADO
+
+        if jugador.get("interacting"):
+            return "Interactuando", COLOR_EXTRAYENDO
+
+        return "Normal", COLOR_NORMAL
+    
+    def _obtener_estado_reactor(self, reactor: dict) -> tuple[str, tuple[int, int, int]]:
+        """Devuelve el estado del reactor usando el nombre del jugador."""
+
+        if not isinstance(reactor, dict):
+            return "Estado desconocido", (180, 180, 180)
+
+        operador = reactor.get("operator")
+        estado = reactor.get("status")
+
+        if estado == "overload":
+            return "Reactor sobrecargado", (255, 180, 80)
+
+        if estado == "available":
+            return "Reactor disponible", (120, 220, 150)
+
+        if estado == "in_use" and operador is None:
+            return "Reactor ocupado", (255, 180, 80)
+
+        if operador is None:
+            return "Sin operador", (120, 220, 150)
+
+        if operador == "red":
+            nombre = self._nombres.get("red", "Jugador sin identificar")
+            return f"Operado por {nombre}", (255, 100, 100)
+
+        if operador == "blue":
+            nombre = self._nombres.get("blue", "Jugador sin identificar")
+            return f"Operado por {nombre}", (100, 160, 255)
+
+        return "Estado desconocido", (180, 180, 180)
+
+    @staticmethod
+    def _obtener_estado_partida(partida: dict) -> tuple[str, tuple[int, int, int]]:
+        if partida and partida.get("finished", False):
+            return "FINALIZADA", (200, 200, 200)
+
+        if not partida or not partida.get("started", False):
+            return "EN ESPERA", (255, 200, 100)
+
+        if partida.get("overtime", 0) > 0:
+            return "PRORROGA", (255, 160, 80)
+
+        return "EN PARTIDA", (120, 220, 150)
 
     # Dibuja la arena y los jugadores según el estado actual.
     def _dibujar(self, pantalla: pygame.Surface, fuente: pygame.font.Font) -> None:
@@ -196,6 +338,23 @@ class Juego:
                 int(obstaculo["height"]),
             )
             pygame.draw.rect(pantalla, COLOR_OBSTACULO, rectangulo)
+
+        for puerta in self._estado.get("doors", []):
+            rectangulo = pygame.Rect(int(puerta["x"]), int(puerta["y"]),
+                                    int(puerta["width"]), int(puerta["height"]))
+            if puerta["open"]:
+                pygame.draw.rect(pantalla, COLOR_PUERTA_ABIERTA, rectangulo, 3)
+            else:
+                pygame.draw.rect(pantalla, COLOR_PUERTA_CERRADA, rectangulo)
+
+        for trampa in self._estado.get("traps", []):
+            rectangulo = pygame.Rect(int(trampa["x"]), int(trampa["y"]),
+                                    int(trampa["width"]), int(trampa["height"]))
+            color = COLORES_TRAMPA.get(trampa["type"], COLOR_OBSTACULO)
+            pygame.draw.rect(pantalla, color, rectangulo)
+            pygame.draw.rect(pantalla, COLOR_TEXTO, rectangulo, 2)
+            letra = fuente.render(LETRAS_TRAMPA.get(trampa["type"], "?"), True, COLOR_TEXTO)
+            pantalla.blit(letra, letra.get_rect(center=rectangulo.center))
 
         colores = {"red": COLOR_ROJO, "blue": COLOR_AZUL}
         reactor = self._estado.get("reactor")
@@ -219,7 +378,23 @@ class Juego:
                 jugador["y"] + TAMANO_JUGADOR / 2,
             )
             direccion = pygame.Vector2(jugador.get("dir_x", 1), jugador.get("dir_y", 0))
-            self._renderizador_avatares.dibujar(pantalla=pantalla,centro=centro,direccion=direccion,avatar=self._avatares.get(nombre, "avatar_1"), tamano=TAMANO_JUGADOR,)
+            self._renderizador_avatares.dibujar(pantalla=pantalla,centro=centro,direccion=direccion,avatar=self._avatares.get(nombre, "avatar_1"), tamano=TAMANO_JUGADOR, invertido=jugador.get("inverted", False),)
+            # Resaltar visualmente al jugador controlado en este cliente.
+            if nombre == self._puesto:
+                contorno_local = pygame.Rect(
+                    int(centro.x - TAMANO_JUGADOR / 2 - 5),
+                    int(centro.y - TAMANO_JUGADOR / 2 - 5),
+                    TAMANO_JUGADOR + 10,
+                    TAMANO_JUGADOR + 10,
+                )
+
+                pygame.draw.rect(
+                    pantalla,
+                    (255, 255, 255),
+                    contorno_local,
+                    3,
+                    border_radius=6,
+                )
             deseada = pygame.Vector2(jugador.get("move_x", 0), jugador.get("move_y", 0))
             if deseada.length_squared():
                 deseada = deseada.normalize()
@@ -251,15 +426,61 @@ class Juego:
         texto = fuente.render(self._mensaje, True, COLOR_TEXTO)
         pantalla.blit(texto, (20, ALTO - 35))
 
+        
         x = 20
         for nombre in ("red", "blue"):
-            puntos = jugadores.get(nombre, {}).get("score", 0)
+            jugador = jugadores.get(nombre, {})
+            puntos = jugador.get("score", 0)
             etiqueta = self._nombres[nombre]
-            marcador = fuente.render(f"{etiqueta}: {puntos}", True, colores[nombre]) 
+
+            marcador = fuente.render(
+                f"{etiqueta}: {puntos}",
+                True,
+                colores[nombre],
+            )
             pantalla.blit(marcador, (x, 15))
-            x += marcador.get_width() + 40
+
+            texto_estado, color_estado = self._obtener_estado_jugador(jugador)
+
+            indicador = fuente.render(
+                texto_estado,
+                True,
+                color_estado,
+            )
+            pantalla.blit(indicador, (x, 45))
+
+            x += max(marcador.get_width(), indicador.get_width()) + 40
+
+        # Mostrar el estado del reactor una sola vez
+        reactor = self._estado.get("reactor", {})
+
+        texto_reactor, color_reactor = self._obtener_estado_reactor(reactor)
+
+        indicador_reactor = fuente.render(
+            f"Reactor: {texto_reactor}",
+            True,
+            color_reactor,
+        )
+
+        pantalla.blit(
+            indicador_reactor,
+            (ANCHO // 2 - indicador_reactor.get_width() // 2, 75),
+        )
 
         partida = self._estado.get("match")
+
+        texto_partida, color_partida = self._obtener_estado_partida(partida)
+
+        indicador_partida = fuente.render(
+            texto_partida,
+            True,
+            color_partida,
+        )
+
+        pantalla.blit(
+            indicador_partida,
+            indicador_partida.get_rect(midtop=(ANCHO // 2, 110)),
+        )
 
         if partida is not None:
             prorrogas = partida.get("overtime", 0)
@@ -288,6 +509,7 @@ class Juego:
                 texto_limite,
                 texto_limite.get_rect(midtop=(ANCHO // 2, 15))
             )
+            self._notificaciones.dibujar(pantalla, fuente)
     # Dibuja una flecha centrada en el jugador que apunta según su vector de dirección.
     @staticmethod
     def _dibujar_flecha(

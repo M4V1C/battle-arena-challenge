@@ -1,0 +1,34 @@
+{
+  "id": "arena_clasica",
+  "nombre": "Arena clásica",
+  "limites": {
+    "ancho": 1600,
+    "alto": 900
+  },
+  "posiciones_iniciales": {
+    "red": {"x": 100, "y": 100},
+    "blue": {"x": 1460, "y": 760}
+  },
+  "reactor": {
+    "x": 780,
+    "y": 430,
+    "ancho": 40,
+    "alto": 40
+  },
+  "obstaculos": [
+    {"x": 300, "y": 250, "ancho": 200, "alto": 40},
+    {"x": 900, "y": 150, "ancho": 40, "alto": 300},
+    {"x": 1200, "y": 500, "ancho": 250, "alto": 40},
+    {"x": 400, "y": 600, "ancho": 40, "alto": 200}
+  ],
+  "puertas": [
+    {
+      "id": "puerta_central",
+      "x": 600,
+      "y": 400,
+      "ancho": 40,
+      "alto": 120
+    }
+  ],
+  "zonas_trampas": []
+}

@@ -1,6 +1,7 @@
 import pytest
 
 from app.game_state import EstadoJuego
+from tests.helpers import partida_iniciada
 
 
 def entradas(red=(0, 0, 0, 0), blue=(0, 0, 0, 0)) -> dict:
@@ -12,7 +13,7 @@ def entradas(red=(0, 0, 0, 0), blue=(0, 0, 0, 0)) -> dict:
 
 
 def juego_junto_al_reactor() -> EstadoJuego:
-    juego = EstadoJuego(obstaculos=())
+    juego = partida_iniciada(obstaculos=())
     # Reactor en (780, 430); rojo a su izquierda y azul a su derecha.
     juego._jugadores["red"].x, juego._jugadores["red"].y = 740, 430
     juego._jugadores["blue"].x, juego._jugadores["blue"].y = 820, 430
@@ -26,7 +27,7 @@ def avanzar(juego: EstadoJuego, segundos: float) -> dict:
 
 
 def test_reactor_esta_en_el_centro_y_es_solido():
-    juego = EstadoJuego(obstaculos=())
+    juego = partida_iniciada(obstaculos=())
     reactor = juego.estado()["reactor"]
     assert (reactor["x"], reactor["y"], reactor["size"]) == (780, 430, 40)
     assert reactor["ring_radius"] == 60
@@ -58,7 +59,7 @@ def test_interactuar_en_rango_congela_y_volver_a_interactuar_libera():
 
 
 def test_interactuar_fuera_de_rango_no_congela():
-    juego = EstadoJuego()
+    juego = partida_iniciada()
     estado = juego.actualizar_entradas(entradas(red=(0, 0, 0, 1)))
 
     assert estado["players"]["red"]["frozen"] is False
@@ -105,3 +106,4 @@ def test_terminar_partida_reinicia_todo_el_estado():
 
     assert juego.estado() == EstadoJuego(obstaculos=()).estado()
     assert juego.avanzar(0.5) == EstadoJuego(obstaculos=()).estado()
+

@@ -1,0 +1,45 @@
+{
+  "id": "laberinto",
+  "nombre": "Laberinto",
+  "limites": {
+    "ancho": 1600,
+    "alto": 900
+  },
+  "posiciones_iniciales": {
+    "red": {"x": 100, "y": 100},
+    "blue": {"x": 1460, "y": 760}
+  },
+  "reactor": {
+    "x": 780,
+    "y": 430,
+    "ancho": 40,
+    "alto": 40
+  },
+  "obstaculos": [
+    {"x": 300, "y": 100, "ancho": 40, "alto": 300},
+    {"x": 300, "y": 500, "ancho": 40, "alto": 250},
+    {"x": 500, "y": 250, "ancho": 300, "alto": 40},
+    {"x": 500, "y": 600, "ancho": 300, "alto": 40},
+    {"x": 1000, "y": 100, "ancho": 40, "alto": 300},
+    {"x": 1000, "y": 500, "ancho": 40, "alto": 250},
+    {"x": 1200, "y": 250, "ancho": 200, "alto": 40},
+    {"x": 1200, "y": 600, "ancho": 200, "alto": 40}
+  ],
+  "puertas": [
+    {
+      "id": "puerta_laberinto_1",
+      "x": 780,
+      "y": 250,
+      "ancho": 40,
+      "alto": 120
+    },
+    {
+      "id": "puerta_laberinto_2",
+      "x": 1000,
+      "y": 400,
+      "ancho": 40,
+      "alto": 100
+    }
+  ],
+  "zonas_trampas": []
+}

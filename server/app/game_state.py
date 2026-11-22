@@ -1,13 +1,32 @@
 """Estado autoritativo y reglas de movimiento de la arena."""
 
 import math
+import random
 import threading
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.escenarios import cargar_escenario
 from app.game_config import CONFIGURACION_INICIAL, validar_configuracion
+from app.reglas import Reglas, cargar_reglas
 
 ACCIONES = ("shoot", "interact")
+
+PUESTOS = ("red", "blue")
+ANFITRION = "red"
+MAX_NOTIFICACIONES = 20
+# Estados del reactor en state.reactor.status.
+REACTOR_DISPONIBLE = "available"
+REACTOR_EN_USO = "in_use"
+
+
+class Rechazo(ValueError):
+    """Solicitud rechazada: codigo estable para el cliente y motivo legible."""
+
+    def __init__(self, codigo: str, motivo: str):
+        super().__init__(motivo)
+        self.codigo = codigo
+        self.motivo = motivo
 
 # PosiciÃ³n actual de un jugador dentro de la arena
 @dataclass
@@ -21,6 +40,10 @@ class Jugador:
     mov_y: float = 0.0
     tiempo_interaccion: float = 0.0
     puntos: int = 0
+    bloqueo_restante: float = 0.0
+    lentitud_restante: float = 0.0
+    trampa_actual: str | None = None
+    trampas_ocupadas: set[str] = field(default_factory=set)
     # Ãšltimo contador de pulsaciones procesado por acciÃ³n.
     contadores: dict[str, int] = field(default_factory=lambda: dict.fromkeys(ACCIONES, 0))
 
@@ -51,6 +74,20 @@ class Obstaculo:
             and y + tamano > self.y
         )
 
+
+@dataclass(frozen=True)
+class Puerta:
+    id: str
+    zona: Obstaculo
+
+
+@dataclass(frozen=True)
+class Trampa:
+    id: str
+    tipo: str
+    zona: Obstaculo
+    duracion: float
+
 # ObstÃ¡culos iniciales en la arena.
 MAPA_INICIAL = (
     Obstaculo(300, 250, 200, 40),
@@ -58,6 +95,27 @@ MAPA_INICIAL = (
     Obstaculo(1200, 500, 250, 40),
     Obstaculo(400, 600, 40, 200),
 )
+PUERTAS_INICIALES = (Puerta("puerta_central", Obstaculo(600, 400, 40, 120)),)
+MAPA_LABERINTO = (
+    Obstaculo(300, 100, 40, 300),
+    Obstaculo(300, 500, 40, 250),
+    Obstaculo(500, 250, 300, 40),
+    Obstaculo(500, 600, 300, 40),
+    Obstaculo(1000, 100, 40, 300),
+    Obstaculo(1000, 500, 40, 250),
+    Obstaculo(1200, 250, 200, 40),
+    Obstaculo(1200, 600, 200, 40),
+)
+
+PUERTAS_LABERINTO = (
+    Puerta("puerta_laberinto_1", Obstaculo(780, 250, 40, 120)),
+    Puerta("puerta_laberinto_2", Obstaculo(1000, 400, 40, 100)),
+)
+ESCENARIOS = {
+    "arena_clasica": (MAPA_INICIAL, PUERTAS_INICIALES),
+    "laberinto": (MAPA_LABERINTO, PUERTAS_LABERINTO),
+}
+TIPOS_TRAMPA = (("jaula", 2.5), ("arenas", 1.75), ("inversion", 1.25))
 
 # Mantiene y actualiza las posiciones compartidas de ambos jugadores
 class EstadoJuego:
@@ -70,14 +128,33 @@ class EstadoJuego:
     VELOCIDAD_PROYECTIL = 900.0           # Velocidad de los proyectiles en unidades por segundo.
     DURACION_INTERACCION = 0.15           # DuraciÃ³n en segundos de la interacciÃ³n con el reactor.
     RADIO_REACTOR = 1.5 * TAMANO_JUGADOR  # Anillo de diÃ¡metro 3x el hitbox.
-    INTERVALO_PUNTO = 0.5
     VELOCIDAD_GIRO = math.radians(360)
     ZONA_MUERTA = 0.15
+    RADIO_PUERTA = 90.0
 
     # Crea la arena con las posiciones iniciales de rojo y azul
-    def __init__(self, obstaculos: tuple[Obstaculo, ...] = MAPA_INICIAL):
+    def __init__(
+        self,
+        obstaculos: tuple[Obstaculo, ...] = MAPA_INICIAL,
+        reglas: Reglas | None = None,
+        puertas: tuple[Puerta, ...] | None = None,
+        trampas: tuple[Trampa, ...] | None = None,
+        semilla: int | None = None,
+    ):
+        self._reglas = reglas if reglas is not None else cargar_reglas()
+
         self._configuracion = dict(CONFIGURACION_INICIAL)
+        self._posiciones_iniciales = {
+            "red": (100, 100),
+            "blue": (1460, 760),
+        }
         self._obstaculos = tuple(obstaculos)
+        # Un mapa personalizado no recibe elementos del mapa inicial por sorpresa.
+        self._puertas = tuple(PUERTAS_INICIALES if obstaculos is MAPA_INICIAL else ()) if puertas is None else tuple(puertas)
+        self._trampas_fijas = None if trampas is None and obstaculos is MAPA_INICIAL else tuple(trampas or ())
+        self._azar = random.Random(semilla)
+        self._puertas_abiertas: dict[str, bool] = {}
+        self._trampas: tuple[Trampa, ...] = ()
         self._reactor = Obstaculo(
             (self.ANCHO - self.TAMANO_JUGADOR) / 2,
             (self.ALTO - self.TAMANO_JUGADOR) / 2,
@@ -91,6 +168,13 @@ class EstadoJuego:
         # El bloqueo hace atÃ³micas las actualizaciones concurrentes recibidas
         # por los hilos que atienden conexiones TCP.
         self._bloqueo = threading.Lock()
+        # Sala: usuario que ocupa cada puesto y si su conexion sigue abierta.
+        self._puestos: dict[str, str | None] = dict.fromkeys(PUESTOS)
+        self._conectados: dict[str, bool] = dict.fromkeys(PUESTOS, False)
+        # Avisos para los clientes; el id crece siempre, aunque se vacie la lista.
+        self._notificaciones: list[dict[str, Any]] = []
+        self._ultimo_id_notificacion = 0
+        self._jugadores: dict[str, Jugador] = {}
         self._reiniciar_estado()
 
     # Reinicia la partida a su estado inicial.
@@ -99,14 +183,173 @@ class EstadoJuego:
             self._reiniciar_estado()
 
     def iniciar_partida(self, configuracion: Any) -> dict[str, Any]:
-        configuracion = validar_configuracion(configuracion)
         with self._bloqueo:
-            self._configuracion = configuracion
-            self._reiniciar_estado()
-            if configuracion["condition"] == "time":
-                self._limite_tiempo = configuracion["value"] * 60
-            self._iniciada = True
+            return self._iniciar_bloqueado(configuracion)
+
+    def _seleccionar_escenario(self, escenario: str) -> None:
+        try:
+            datos = cargar_escenario(escenario)
+        except (ValueError, OSError) as error:
+            raise Rechazo(
+                "invalid_scenario",
+                f"No se pudo cargar el escenario: {error}",
+            ) from error
+
+        if datos.ancho != self.ANCHO or datos.alto != self.ALTO:
+            raise Rechazo(
+                "invalid_scenario",
+                "Las dimensiones del escenario no son compatibles.",
+            )
+
+        self._obstaculos = tuple(
+            Obstaculo(*rectangulo)
+            for rectangulo in datos.obstaculos
+        )
+
+        self._puertas = tuple(
+            Puerta(identificador, Obstaculo(*rectangulo))
+            for identificador, rectangulo in datos.puertas
+        )
+
+        self._reactor = Obstaculo(*datos.reactor)
+        self._posiciones_iniciales = dict(datos.posiciones)
+
+        self._solidos = self._obstaculos + (self._reactor,)
+
+        # Se conserva la generación automática de trampas.
+        self._trampas_fijas = None
+
+    # Arranca la partida; el llamador ya posee el bloqueo.
+    def _iniciar_bloqueado(self, configuracion: Any) -> dict[str, Any]:
+        configuracion = validar_configuracion(configuracion)
+        self._configuracion = configuracion
+        self._reiniciar_estado()
+        if configuracion["condition"] == "time":
+            self._limite_tiempo = configuracion["value"] * 60
+        self._iniciada = True
+        return self._crear_estado()
+
+    # Asigna un puesto al usuario: red al primero (anfitrion) y blue al segundo.
+    # Si el usuario ya tenia puesto (se desconecto en plena partida) lo recupera.
+    def unir_jugador(self, usuario: Any) -> str:
+        if not isinstance(usuario, str) or not usuario.strip():
+            raise Rechazo("invalid_user", "El usuario no es válido.")
+        usuario = usuario.strip()
+        with self._bloqueo:
+            for puesto, ocupante in self._puestos.items():
+                if ocupante == usuario:
+                    if self._conectados[puesto]:
+                        raise Rechazo(
+                            "already_connected",
+                            "Esta cuenta ya está conectada a la partida.",
+                        )
+                    self._conectados[puesto] = True
+                    self._reiniciar_contadores(puesto)
+                    return puesto
+            libre = next((p for p in PUESTOS if self._puestos[p] is None), None)
+            if libre is None:
+                raise Rechazo("room_full", "La sala ya tiene dos jugadores.")
+            self._puestos[libre] = usuario
+            self._conectados[libre] = True
+            self._reiniciar_contadores(libre)
+            return libre
+
+    # Libera el puesto cuando se cierra la conexion de su cliente.
+    # Antes de empezar (o al terminar) el puesto queda libre; en plena partida
+    # se reserva para el mismo usuario. Si no queda nadie, la sala se vacia.
+    def liberar_puesto(self, puesto: str) -> None:
+        with self._bloqueo:
+            if puesto not in self._puestos or not self._conectados[puesto]:
+                return
+            self._conectados[puesto] = False
+            self._entradas[puesto] = (0, 0)
+            jugador = self._jugadores[puesto]
+            jugador.mov_x = jugador.mov_y = 0.0
+            self._reiniciar_contadores(puesto)
+            if self._operador_reactor == puesto:
+                self._operador_reactor = None
+            if not self._iniciada or self._terminada:
+                self._puestos[puesto] = None
+            if not any(self._conectados.values()):
+                self._vaciar_sala()
+
+    # Deja la sala como recien creada. El llamador ya posee el bloqueo.
+    def _vaciar_sala(self) -> None:
+        self._reiniciar_estado()
+        for puesto in PUESTOS:
+            self._reiniciar_contadores(puesto)
+        self._puestos = dict.fromkeys(PUESTOS)
+        self._conectados = dict.fromkeys(PUESTOS, False)
+        self._notificaciones = []
+
+    def _reiniciar_contadores(self, puesto: str) -> None:
+        self._jugadores[puesto].contadores = dict.fromkeys(ACCIONES, 0)
+
+    # Inicia la partida a peticion de un puesto. Solo la inicia el anfitrion,
+    # con los dos jugadores conectados y sin otra partida en curso.
+    def iniciar_por(
+        self,
+        puesto: str,
+        configuracion: Any,
+        escenario: str = "arena_clasica",
+    ) -> dict[str, Any]:
+        with self._bloqueo:
+            if puesto != ANFITRION:
+                raise Rechazo(
+                    "not_host",
+                    "Solo el anfitrión puede iniciar la partida."
+                )
+
+            if self._iniciada and not self._terminada:
+                raise Rechazo(
+                    "match_in_progress",
+                    "La partida ya está en curso."
+                )
+
+            if not all(self._conectados.values()):
+                raise Rechazo(
+                    "waiting_for_players",
+                    "Falta que se conecte el otro jugador."
+                )
+
+            self._seleccionar_escenario(escenario)
+            return self._iniciar_bloqueado(configuracion)
+
+    # Registra un rechazo para un puesto en state.notifications y devuelve el estado.
+    def rechazar(self, puesto: str, codigo: str, motivo: str) -> dict[str, Any]:
+        with self._bloqueo:
+            self._rechazar(puesto, codigo, motivo)
             return self._crear_estado()
+    #Anota un rechazo dirigido a un puesto. El llamador ya posee el bloqueo.
+    def _rechazar(self, puesto: str, codigo: str, motivo: str) -> None:
+        self._agregar_notificacion("reject", motivo, "warning", puesto, codigo)
+
+    # Id de la ultima notificacion emitida (0 si aun no hay ninguna).
+    def ultima_notificacion(self) -> int:
+        with self._bloqueo:
+            return self._ultimo_id_notificacion
+
+    # Agrega un aviso con id creciente. El llamador ya posee el bloqueo.
+    def _agregar_notificacion(
+        self,
+        tipo: str,
+        mensaje: str,
+        severidad: str,
+        para: str | None = None,
+        codigo: str | None = None,
+    ) -> None:
+        self._ultimo_id_notificacion += 1
+        notificacion: dict[str, Any] = {
+            "id": self._ultimo_id_notificacion,
+            "kind": tipo,
+            "message": mensaje,
+            "severity": severidad,
+            "for": para,
+        }
+        if codigo is not None:
+            notificacion["code"] = codigo
+        self._notificaciones.append(notificacion)
+        del self._notificaciones[:-MAX_NOTIFICACIONES]
 
     # Inicializa o reinicia el estado interno del juego. No debe llamarse directamente desde fuera de la clase.
     def _reiniciar_estado(self) -> None:
@@ -118,14 +361,24 @@ class EstadoJuego:
         self._limite_tiempo = None
         self._operador_reactor = None
         self._tiempo_reactor = 0.0
+        self._puertas_abiertas = {puerta.id: False for puerta in self._puertas}
+        self._trampas = self._generar_trampas() if self._trampas_fijas is None else self._trampas_fijas
+        anteriores = self._jugadores
         self._jugadores = {
-            "red": Jugador(100, 100, dir_x=1.0),
+            "red": Jugador(
+                *self._posiciones_iniciales["red"],
+                dir_x=1.0,
+            ),
             "blue": Jugador(
-                self.ANCHO - self.TAMANO_JUGADOR - 100,
-                self.ALTO - self.TAMANO_JUGADOR - 100,
+                *self._posiciones_iniciales["blue"],
                 dir_x=-1.0,
             ),
         }
+        # Los contadores acumulados pertenecen a la conexion, no a la partida:
+        # si se reiniciaran, la ultima pulsacion de un cliente se repetiria.
+        for nombre, jugador in self._jugadores.items():
+            if nombre in anteriores:
+                jugador.contadores = dict(anteriores[nombre].contadores)
         self._proyectiles: list[Proyectil] = []
         # El servidor conserva la Ãºltima direcciÃ³n recibida y simula el
         # movimiento a una frecuencia fija, independiente de los paquetes.
@@ -133,6 +386,60 @@ class EstadoJuego:
             "red": (0, 0),
             "blue": (0, 0),
         }
+
+    def _generar_trampas(self) -> tuple[Trampa, ...]:
+        """Elige tres celdas libres y alejadas de los puntos de aparición."""
+        candidatos = []
+        for y in range(160, 761, 100):
+            for x in range(200, 1401, 100):
+                zona = Obstaculo(x, y, 64, 64)
+                centro = (x + 32, y + 32)
+                if any(
+                    Obstaculo(solido.x - 40, solido.y - 40,
+                              solido.ancho + 80, solido.alto + 80).colisiona(x, y, 64)
+                    for solido in self._solidos + tuple(p.zona for p in self._puertas)
+                ):
+                    continue
+                if math.dist(centro, (800, 450)) < 155:
+                    continue
+                if any(math.dist(centro, aparicion) < 170 for aparicion in ((120, 120), (1480, 780))):
+                    continue
+                candidatos.append(zona)
+        if len(candidatos) < len(TIPOS_TRAMPA):
+            raise ValueError("El mapa no tiene espacio para tres trampas.")
+        zonas = self._azar.sample(candidatos, len(TIPOS_TRAMPA))
+        return tuple(
+            Trampa(f"trampa_{tipo}", tipo, zona, duracion)
+            for (tipo, duracion), zona in zip(TIPOS_TRAMPA, zonas)
+        )
+
+    def _solidos_actuales(self) -> tuple[Obstaculo, ...]:
+        return self._solidos + tuple(
+            puerta.zona for puerta in self._puertas
+            if not self._puertas_abiertas[puerta.id]
+        )
+
+    def _activar_trampas(self, jugador: Jugador) -> None:
+        ocupadas = {
+            trampa.id for trampa in self._trampas
+            if trampa.zona.colisiona(jugador.x, jugador.y, self.TAMANO_JUGADOR)
+        }
+        nuevas = ocupadas - jugador.trampas_ocupadas
+        jugador.trampas_ocupadas = ocupadas
+        if jugador.bloqueo_restante > 0:
+            return
+        for trampa in self._trampas:
+            if trampa.id in nuevas:
+                jugador.bloqueo_restante = trampa.duracion
+                jugador.trampa_actual = trampa.tipo
+                if trampa.tipo == "arenas":
+                    jugador.lentitud_restante = trampa.duracion + 2.0
+                if self._operador_reactor is not None:
+                    for nombre, candidato in self._jugadores.items():
+                        if candidato is jugador and self._operador_reactor == nombre:
+                            self._operador_reactor = None
+                            break
+                break
 
     def _iniciar_prorroga(self) -> None:
         puntos = {
@@ -153,7 +460,19 @@ class EstadoJuego:
         self._limite_tiempo = tiempo + 120
         self._iniciada = True
 
-    # Valida y guarda las entradas mÃ¡s recientes de ambos jugadores.
+    # Valida y aplica la entrada de UN puesto (la de su propia conexion).
+    # No inicia la partida: fuera de una partida activa solo sincroniza los
+    # contadores para que una pulsacion vieja no se ejecute al empezar.
+    def aplicar_entrada(self, puesto: str, entrada: Any) -> dict[str, Any]:
+        if puesto not in self._jugadores:
+            raise Rechazo("not_joined", "No tienes un puesto en la partida.")
+        direccion = self._leer_direccion(entrada)
+        acciones = self._leer_acciones(entrada)
+        with self._bloqueo:
+            self._aplicar_entrada(puesto, direccion, acciones)
+            return self._crear_estado()
+
+    # Valida y aplica las entradas de ambos puestos a la vez (pruebas y bots locales).
     def actualizar_entradas(self, entradas: Any) -> dict[str, Any]:
         if not isinstance(entradas, dict):
             raise ValueError("Las entradas deben ser un objeto JSON.")
@@ -168,31 +487,65 @@ class EstadoJuego:
         }
 
         with self._bloqueo:
-            if self._terminada:
-                return self._crear_estado()
-            self._iniciada = True
-            self._entradas.update(direcciones)
-            for nombre, (dx, dy) in direcciones.items():
-                jugador = self._jugadores[nombre]
-                magnitud = math.hypot(dx, dy)
-                jugador.mov_x = dx / magnitud if magnitud else 0.0
-                jugador.mov_y = dy / magnitud if magnitud else 0.0
-                # Los contadores son acumulativos: una pulsaciÃ³n no se pierde
-                # aunque el cliente descarte mensajes intermedios.
-                for accion, contador in acciones[nombre].items():
-                    if contador > jugador.contadores[accion]:
-                        self._ejecutar_accion(nombre, accion)
-                    jugador.contadores[accion] = contador
+            for nombre in self._jugadores:
+                self._aplicar_entrada(nombre, direcciones[nombre], acciones[nombre])
             return self._crear_estado()
+
+    # Aplica una entrada ya validada. El llamador ya posee el bloqueo.
+    def _aplicar_entrada(
+        self,
+        nombre: str,
+        direccion: tuple[float, float],
+        acciones: dict[str, int],
+    ) -> None:
+        jugador = self._jugadores[nombre]
+        activa = self._iniciada and not self._terminada
+        if activa:
+            dx, dy = direccion
+            self._entradas[nombre] = direccion
+            magnitud = math.hypot(dx, dy)
+            jugador.mov_x = dx / magnitud if magnitud else 0.0
+            jugador.mov_y = dy / magnitud if magnitud else 0.0
+        # Los contadores son acumulativos y un valor menor o igual al ultimo
+        # procesado es una repeticion: se ignora (CA-18.8).
+        for accion, contador in acciones.items():
+            if contador > jugador.contadores[accion]:
+                jugador.contadores[accion] = contador
+                if activa:
+                    self._ejecutar_accion(nombre, accion)
+                elif accion == "interact":
+                    self._rechazar(nombre, "match_not_active", "La partida no está activa.")
 
     # Ejecuta la acciÃ³n correspondiente a un jugador, como interactuar con el reactor o disparar.
     def _ejecutar_accion(self, nombre: str, accion: str) -> None:
         jugador = self._jugadores[nombre]
+        if jugador.bloqueo_restante > 0:
+            self._rechazar(nombre, "player_trapped", "No puedes actuar mientras estás atrapado.")
+            return
         if accion == "interact":
-            jugador.tiempo_interaccion = self.DURACION_INTERACCION
+            puerta = self._puerta_cercana(jugador)
+            if puerta is not None:
+                if self._puertas_abiertas[puerta.id] and any(
+                    puerta.zona.colisiona(otro.x, otro.y, self.TAMANO_JUGADOR)
+                    for otro in self._jugadores.values()
+                ):
+                    self._rechazar(nombre, "door_occupied", "La puerta no puede cerrarse sobre un jugador.")
+                    return
+                self._puertas_abiertas[puerta.id] = not self._puertas_abiertas[puerta.id]
+                return
             if self._operador_reactor == nombre:
                 self._operador_reactor = None
-            elif self._operador_reactor is None and self._en_rango_reactor(jugador):
+            elif self._operador_reactor is not None:
+                self._rechazar(
+                    nombre, "reactor_busy", "El otro jugador está usando el reactor."
+                )
+            elif not self._en_rango_reactor(jugador):
+                self._rechazar(
+                    nombre,
+                    "out_of_range",
+                    "Estás fuera de la zona del reactor. Acércate para extraer energía.",
+                )
+            else:
                 self._operador_reactor = nombre
                 self._tiempo_reactor = 0.0
         elif accion == "shoot" and nombre != self._operador_reactor:
@@ -206,6 +559,18 @@ class EstadoJuego:
                     nombre,
                 )
             )
+
+    def _puerta_cercana(self, jugador: Jugador) -> Puerta | None:
+        centro = (jugador.x + self.TAMANO_JUGADOR / 2,
+                  jugador.y + self.TAMANO_JUGADOR / 2)
+        cercanas = [
+            puerta for puerta in self._puertas
+            if math.dist(centro, (puerta.zona.x + puerta.zona.ancho / 2,
+                                  puerta.zona.y + puerta.zona.alto / 2)) <= self.RADIO_PUERTA
+        ]
+        return min(cercanas, key=lambda p: math.dist(
+            centro, (p.zona.x + p.zona.ancho / 2, p.zona.y + p.zona.alto / 2)
+        )) if cercanas else None
 
     # Verifica si un jugador estÃ¡ dentro del rango de interacciÃ³n con el reactor.
     def _en_rango_reactor(self, jugador: Jugador) -> bool:
@@ -237,20 +602,37 @@ class EstadoJuego:
                     max(0.0, self._limite_tiempo - self._tiempo_partida)
                 )
             elif self._operador_reactor is not None:
+                # Extracciones que faltan para que el operador llegue al objetivo.
                 restantes = limite - self._jugadores[self._operador_reactor].puntos
-                delta_t = min(delta_t, max(0.0, restantes * self.INTERVALO_PUNTO - self._tiempo_reactor))
+                faltan = math.ceil(max(0, restantes) / self._reglas.puntos_por_energia)
+                delta_t = min(
+                    delta_t,
+                    max(0.0, faltan * self._reglas.intervalo_extraccion - self._tiempo_reactor),
+                )
             self._tiempo_partida += delta_t
             for nombre, (dx, dy) in self._entradas.items():
                 jugador = self._jugadores[nombre]
+                tiempo_bloqueado = min(delta_t, jugador.bloqueo_restante)
+                tiempo_lento = jugador.lentitud_restante
+                jugador.bloqueo_restante = max(0.0, jugador.bloqueo_restante - delta_t)
+                jugador.lentitud_restante = max(0.0, jugador.lentitud_restante - delta_t)
+                if jugador.bloqueo_restante == 0:
+                    jugador.trampa_actual = None
                 if nombre != self._operador_reactor:
-                    self._mover_girando(jugador, math.hypot(dx, dy), delta_t)
+                    intensidad = math.hypot(dx, dy) * (0.5 if tiempo_lento > 0 else 1.0)
+                    self._mover_girando(jugador, intensidad, delta_t - tiempo_bloqueado)
+                self._activar_trampas(jugador)
             for jugador in self._jugadores.values():
                 jugador.tiempo_interaccion = max(0.0, jugador.tiempo_interaccion - delta_t)
             if self._operador_reactor is not None:
                 self._tiempo_reactor += delta_t
-                puntos = math.floor((self._tiempo_reactor + 1e-9) / self.INTERVALO_PUNTO)
-                self._tiempo_reactor = max(0.0, self._tiempo_reactor - puntos * self.INTERVALO_PUNTO)
-                self._jugadores[self._operador_reactor].puntos += puntos
+                intervalo = self._reglas.intervalo_extraccion
+                extracciones = math.floor((self._tiempo_reactor + 1e-9) / intervalo)
+                self._tiempo_reactor = max(0.0, self._tiempo_reactor - extracciones * intervalo)
+                # Unica fuente de puntos: extraer energia del reactor.
+                self._jugadores[self._operador_reactor].puntos += (
+                    extracciones * self._reglas.puntos_por_energia
+                )
             self._proyectiles = [
                 p for p in self._proyectiles if self._mover_proyectil(p, delta_t)
             ]
@@ -297,12 +679,17 @@ class EstadoJuego:
         )
         paso_t = duracion / pasos
         for _ in range(pasos):
+            if jugador.bloqueo_restante > 0:
+                break
             siguiente = angulo + velocidad_angular * paso_t
             paso_x = velocidad * (math.sin(siguiente) - math.sin(angulo)) / velocidad_angular
             paso_y = velocidad * (math.cos(angulo) - math.cos(siguiente)) / velocidad_angular
             self._mover_x(jugador, paso_x)
             self._mover_y(jugador, paso_y)
             angulo = siguiente
+        if jugador.bloqueo_restante > 0:
+            jugador.dir_x, jugador.dir_y = math.cos(angulo), math.sin(angulo)
+            return
         if abs(diferencia) <= self.VELOCIDAD_GIRO * delta_t + 1e-9:
             jugador.dir_x, jugador.dir_y = jugador.mov_x, jugador.mov_y
         else:
@@ -310,10 +697,12 @@ class EstadoJuego:
         self._mover_recto(jugador, velocidad * max(0.0, delta_t - duracion))
 
     def _mover_recto(self, jugador: Jugador, distancia: float) -> None:
-        if distancia <= 0:
+        if distancia <= 0 or jugador.bloqueo_restante > 0:
             return
         pasos = max(1, math.ceil(distancia / (self.TAMANO_JUGADOR / 2)))
         for _ in range(pasos):
+            if jugador.bloqueo_restante > 0:
+                break
             self._mover_x(jugador, jugador.dir_x * distancia / pasos)
             self._mover_y(jugador, jugador.dir_y * distancia / pasos)
 
@@ -333,7 +722,7 @@ class EstadoJuego:
                 or proyectil.y + tamano > self.ALTO
             ):
                 return False
-            if any(o.colisiona(proyectil.x, proyectil.y, tamano) for o in self._solidos):
+            if any(o.colisiona(proyectil.x, proyectil.y, tamano) for o in self._solidos_actuales()):
                 return False
             for nombre, jugador in self._jugadores.items():
                 if nombre != proyectil.dueno and Obstaculo(
@@ -344,25 +733,31 @@ class EstadoJuego:
 
     # Mueve al jugador en la direcciÃ³n x, manejando colisiones con los lÃ­mites del mapa y obstÃ¡culos sÃ³lidos.
     def _mover_x(self, jugador: Jugador, delta: float) -> None:
+        if jugador.bloqueo_restante > 0:
+            return
         tamano = self.TAMANO_JUGADOR
         jugador.x = min(max(jugador.x + delta, 0), self.ANCHO - tamano)
-        for obstaculo in self._solidos:
+        for obstaculo in self._solidos_actuales():
             if obstaculo.colisiona(jugador.x, jugador.y, tamano):
                 if delta > 0:
                     jugador.x = obstaculo.x - tamano
                 else:
                     jugador.x = obstaculo.x + obstaculo.ancho
+        self._activar_trampas(jugador)
 
     # Mueve al jugador en la direcciÃ³n y, manejando colisiones con los lÃ­mites del mapa y obstÃ¡culos sÃ³lidos.
     def _mover_y(self, jugador: Jugador, delta: float) -> None:
+        if jugador.bloqueo_restante > 0:
+            return
         tamano = self.TAMANO_JUGADOR
         jugador.y = min(max(jugador.y + delta, 0), self.ALTO - tamano)
-        for obstaculo in self._solidos:
+        for obstaculo in self._solidos_actuales():
             if obstaculo.colisiona(jugador.x, jugador.y, tamano):
                 if delta > 0:
                     jugador.y = obstaculo.y - tamano
                 else:
                     jugador.y = obstaculo.y + obstaculo.alto
+        self._activar_trampas(jugador)
 
     # Detiene a los jugadores al perderse la conexiÃ³n del cliente, reiniciando sus entradas y contadores.
     def detener_movimiento(self) -> None:
@@ -388,6 +783,7 @@ class EstadoJuego:
             "player_size": self.TAMANO_JUGADOR,
             "projectile_size": self.TAMANO_PROYECTIL,
             "match": {
+                "started": self._iniciada,        # nuevo
                 "finished": self._terminada,
                 "elapsed": self._tiempo_partida,
                 "condition": self._configuracion["condition"],
@@ -405,8 +801,16 @@ class EstadoJuego:
                     "move_x": jugador.mov_x,
                     "move_y": jugador.mov_y,
                     "interacting": jugador.tiempo_interaccion > 0,
-                    "frozen": nombre == self._operador_reactor,
+                    "frozen": jugador.bloqueo_restante > 0,
+                    "trap": jugador.trampa_actual,
+                    "trap_remaining": jugador.bloqueo_restante,
+                    "inverted": jugador.trampa_actual == "inversion",
+                    "slowed": jugador.lentitud_restante > 0 and jugador.bloqueo_restante == 0,
+                    "slow_remaining": max(0.0, jugador.lentitud_restante - jugador.bloqueo_restante),
+                    "extracting": nombre == self._operador_reactor,
                     "score": jugador.puntos,
+                    "username": self._puestos[nombre],     # nuevo
+                    "connected": self._conectados[nombre], # nuevo
                 }
                 for nombre, jugador in self._jugadores.items()
             },
@@ -416,12 +820,29 @@ class EstadoJuego:
                 "size": self._reactor.ancho,
                 "ring_radius": self.RADIO_REACTOR,
                 "operator": self._operador_reactor,
+                "status": (
+                    REACTOR_DISPONIBLE
+                    if self._operador_reactor is None
+                    else REACTOR_EN_USO
+                ),
             },
             "projectiles": [{"x": p.x, "y": p.y} for p in self._proyectiles],
             "obstacles": [
                 {"x": o.x, "y": o.y, "width": o.ancho, "height": o.alto}
-                for o in self._obstaculos
+                for o in self._obstaculos],
+            "doors": [
+                {"id": p.id, "x": p.zona.x, "y": p.zona.y,
+                 "width": p.zona.ancho, "height": p.zona.alto,
+                 "open": self._puertas_abiertas[p.id]}
+                for p in self._puertas
             ],
+            "traps": [
+                {"id": t.id, "type": t.tipo, "x": t.zona.x, "y": t.zona.y,
+                 "width": t.zona.ancho, "height": t.zona.alto,
+                 "duration": t.duracion}
+                for t in self._trampas
+            ],
+            "notifications": list(self._notificaciones),   # nuevo
         }
 
     # Valida entradas digitales o analogicas y descarta el ruido del stick.

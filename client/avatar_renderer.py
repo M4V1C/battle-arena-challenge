@@ -21,7 +21,7 @@ class RenderizadorAvatares:
     def __init__(self):
         self._colores = dict(zip(AVATARES_PREDETERMINADOS, COLORES_AVATAR))
         self._imagenes: dict[str, pygame.Surface] = {}
-    def dibujar(self,pantalla: pygame.Surface,centro: pygame.Vector2,direccion: pygame.Vector2,avatar: str,tamano: int,) -> None:
+    def dibujar(self,pantalla: pygame.Surface,centro: pygame.Vector2,direccion: pygame.Vector2,avatar: str,tamano: int, invertido: bool = False,) -> None:
         """Dibuja un avatar con una indicación de orientación."""
         color = self._colores.get(avatar, COLORES_AVATAR[0])
 
@@ -42,6 +42,8 @@ class RenderizadorAvatares:
             if imagen is not None:
                 angulo = -pygame.Vector2(1, 0).angle_to(direccion)
                 imagen_rotada = pygame.transform.rotate(imagen, angulo)
+                if invertido:
+                    imagen_rotada = pygame.transform.rotate(imagen_rotada, 180)
                 rectangulo = imagen_rotada.get_rect(center=centro)
                 pantalla.blit(imagen_rotada, rectangulo)
                 return
@@ -57,6 +59,8 @@ class RenderizadorAvatares:
             direccion = pygame.Vector2(1, 0)
         else:
             direccion = direccion.normalize()
+        if invertido:
+            direccion = -direccion
 
         punta = centro + direccion * (tamano * 0.4)
 
