@@ -30,12 +30,20 @@ def test_jugador_inmovilizado():
 def test_jugador_extrayendo():
     texto, color = Juego._obtener_estado_jugador({
         "frozen": False,
-        "interacting": True,
+        "extracting": True,
     })
 
     assert texto == "Extrayendo energia"
     assert color == COLOR_EXTRAYENDO
 
+def test_jugador_interactuando():
+    texto, color = Juego._obtener_estado_jugador({
+        "frozen": False,
+        "interacting": True,
+    })
+
+    assert texto == "Interactuando"
+    assert color == COLOR_EXTRAYENDO
 
 def test_inmovilizacion_tiene_prioridad():
     texto, _ = Juego._obtener_estado_jugador({
@@ -88,3 +96,37 @@ def test_reactor_estado_desconocido():
     })
 
     assert texto == "Estado desconocido"
+
+def test_partida_en_espera():
+    texto, _ = Juego._obtener_estado_partida({
+        "started": False,
+        "finished": False,
+    })
+    assert texto == "EN ESPERA"
+
+
+def test_partida_activa():
+    texto, _ = Juego._obtener_estado_partida({
+        "started": True,
+        "finished": False,
+        "overtime": 0,
+    })
+    assert texto == "EN PARTIDA"
+
+
+def test_partida_en_prorroga():
+    texto, _ = Juego._obtener_estado_partida({
+        "started": True,
+        "finished": False,
+        "overtime": 1,
+    })
+    assert texto == "PRORROGA"
+
+
+def test_partida_finalizada():
+    texto, _ = Juego._obtener_estado_partida({
+        "started": True,
+        "finished": True,
+        "overtime": 1,
+    })
+    assert texto == "FINALIZADA"

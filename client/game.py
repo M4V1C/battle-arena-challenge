@@ -314,6 +314,18 @@ class Juego:
 
         return "Estado desconocido", (180, 180, 180)
 
+    @staticmethod
+    def _obtener_estado_partida(partida: dict) -> tuple[str, tuple[int, int, int]]:
+        if partida and partida.get("finished", False):
+            return "FINALIZADA", (200, 200, 200)
+
+        if not partida or not partida.get("started", False):
+            return "EN ESPERA", (255, 200, 100)
+
+        if partida.get("overtime", 0) > 0:
+            return "PRORROGA", (255, 160, 80)
+
+        return "EN PARTIDA", (120, 220, 150)
 
     # Dibuja la arena y los jugadores según el estado actual.
     def _dibujar(self, pantalla: pygame.Surface, fuente: pygame.font.Font) -> None:
@@ -367,6 +379,22 @@ class Juego:
             )
             direccion = pygame.Vector2(jugador.get("dir_x", 1), jugador.get("dir_y", 0))
             self._renderizador_avatares.dibujar(pantalla=pantalla,centro=centro,direccion=direccion,avatar=self._avatares.get(nombre, "avatar_1"), tamano=TAMANO_JUGADOR, invertido=jugador.get("inverted", False),)
+            # Resaltar visualmente al jugador controlado en este cliente.
+            if nombre == self._puesto:
+                contorno_local = pygame.Rect(
+                    int(centro.x - TAMANO_JUGADOR / 2 - 5),
+                    int(centro.y - TAMANO_JUGADOR / 2 - 5),
+                    TAMANO_JUGADOR + 10,
+                    TAMANO_JUGADOR + 10,
+                )
+
+                pygame.draw.rect(
+                    pantalla,
+                    (255, 255, 255),
+                    contorno_local,
+                    3,
+                    border_radius=6,
+                )
             deseada = pygame.Vector2(jugador.get("move_x", 0), jugador.get("move_y", 0))
             if deseada.length_squared():
                 deseada = deseada.normalize()
@@ -440,6 +468,19 @@ class Juego:
         )
 
         partida = self._estado.get("match")
+
+        texto_partida, color_partida = self._obtener_estado_partida(partida)
+
+        indicador_partida = fuente.render(
+            texto_partida,
+            True,
+            color_partida,
+        )
+
+        pantalla.blit(
+            indicador_partida,
+            indicador_partida.get_rect(midtop=(ANCHO // 2, 110)),
+        )
 
         if partida is not None:
             prorrogas = partida.get("overtime", 0)
