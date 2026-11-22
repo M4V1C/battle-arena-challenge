@@ -32,8 +32,24 @@ INTERVALO_ENTRADAS = 1 / 60         # Intervalo de tiempo entre envíos de entra
 class Juego:
 
     # Inicializa la conexión con el servidor y el estado visual del juego.
-    def __init__(self,host: str,port: int,jugador_rojo: str | None = None,jugador_azul: str | None = None,):
-        self._conexion = ConexionServidor(host, port)
+    def __init__(
+        self,
+        host: str,
+        port: int,
+        jugador_rojo: str | None = None,
+        jugador_azul: str | None = None,
+        token: str | None = None,
+        escenario: str = "arena_clasica",
+    ):
+        if not token:
+            raise ValueError("Se necesita iniciar sesión para conectarse al servidor.")
+
+        self._conexion = ConexionServidor(
+            host,
+            port,
+            solicitud_inicial={"type": "join", "token": token},
+        )
+        self._escenario = escenario
         self._nombres = {"red": jugador_rojo or "Rojo","blue": jugador_azul or "Azul",
 }
         self._estado = {
@@ -43,56 +59,17 @@ class Juego:
             }
         }
         # Contadores acumulados de pulsaciones que se envían al servidor.
-        self._contadores = {
-            jugador: {"shoot": 0, "interact": 0} for jugador in ("red", "blue")
-        }
+        self._contadores = {"shoot": 0, "interact": 0}
         self._teclas: dict[str, dict[str, int]] = {}
         self._control: ControlSDL | None = None
         self._mensaje = f"Servidor: {host}:{port}"
         self._notificaciones = NotificacionesHUD()
+        self._ultima_notificacion_id = 0
+        self._puesto: str | None = None
+        self._inicio_solicitado = False
 
         self._avatares = RepositorioAvatares().obtener()
         self._renderizador_avatares = RenderizadorAvatares()
-
-    def _registrar_resultado(self) -> None:
-        """Guarda las estadísticas de ambos jugadores al terminar la partida."""
-    
-        from perfil_datos import registrar_partida
-    
-        jugadores = self._estado.get("players", {})
-        partida = self._estado.get("match", {})
-
-        rojo = jugadores.get("red", {})
-        azul = jugadores.get("blue", {})
-
-        puntos_rojo = int(rojo.get("score", 0))
-        puntos_azul = int(azul.get("score", 0))
-        duracion = int(partida.get("elapsed", 0))
-
-        # No registrar resultados sin dos cuentas autenticadas.
-        if not self._nombres["red"] or not self._nombres["blue"]:
-            return
-
-        # El sistema de perfiles todavía no admite empates.
-        if puntos_rojo == puntos_azul:
-            return
-
-        resultado_rojo = "victoria" if puntos_rojo > puntos_azul else "derrota"
-        resultado_azul = "victoria" if puntos_azul > puntos_rojo else "derrota"
-
-        registrar_partida(
-            self._nombres["red"],
-            resultado_rojo,
-            puntos_rojo,
-            duracion,
-        )
-
-        registrar_partida(
-            self._nombres["blue"],
-            resultado_azul,
-            puntos_azul,
-            duracion,
-        )
         
     # Ejecuta el ciclo principal de Pygame y gestiona la comunicación con el servidor.
     def ejecutar(self) -> bool:
@@ -131,17 +108,42 @@ class Juego:
                         self._registrar_accion(evento.key)
 
                 ahora = pygame.time.get_ticks() / 1000
-                if ahora - tiempo_ultima_entrada >= INTERVALO_ENTRADAS:
-                    self._conexion.enviar_entradas(self._leer_controles())
+                if self._puesto is not None and ahora - tiempo_ultima_entrada >= INTERVALO_ENTRADAS:
+                    partida = self._estado.get("match", {})
+
+                    if partida.get("started") and not partida.get("finished"):
+                        self._conexion.enviar_entradas(self._leer_controles())
+                    else:
+                        self._conexion.enviar_mensaje({"type": "state"})
+
                     tiempo_ultima_entrada = ahora
 
-                respuesta = self._conexion.obtener_estado()
+                mensaje = self._conexion.obtener_mensaje()
 
+                while mensaje is not None:
+                    if mensaje.get("type") == "joined":
+                        self._puesto = mensaje["slot"]
+                        self._ultima_notificacion_id = mensaje.get("last_notification_id", 0)
+                        self._mensaje = f"Conectado como {mensaje['username']} ({self._puesto})"
+                        self._conexion.enviar_mensaje({"type": "state"})
+
+                    elif mensaje.get("type") == "error":
+                        self._mensaje = f"Error de conexión: {mensaje.get('message', '')}"
+                    elif mensaje.get("type") == "reject":
+                        self._mensaje = mensaje.get("message", "Solicitud rechazada")
+
+                    mensaje = self._conexion.obtener_mensaje()
+                respuesta = self._conexion.obtener_estado()
                 if respuesta is not None:
                     if respuesta.get("type") == "state":
                         self._estado = respuesta
+                        self._procesar_notificaciones(respuesta)
+                        self._intentar_iniciar_partida(respuesta)
+                        for puesto in ("red", "blue"):
+                            usuario = respuesta.get("players", {}).get(puesto, {}).get("username")
+                            if usuario:
+                                self._nombres[puesto] = usuario
                         if respuesta.get("match", {}).get("finished"):
-                            self._registrar_resultado()
 
                             pantalla_victoria = PantallaVictoria(estado=self._estado,avatares=self._avatares, nombres=self._nombres,)
                             return pantalla_victoria.ejecutar()
@@ -158,38 +160,97 @@ class Juego:
                 self._control = None
             self._conexion.cerrar()
 
-    # Cuenta las pulsaciones de disparo e interacción de cada jugador.
+    # Cuenta las pulsaciones de disparo e interacción del jugador local.
     def _registrar_accion(self, tecla: int) -> None:
-        for jugador, teclas in self._teclas.items():
-            for accion in ("shoot", "interact"):
-                if tecla == teclas[accion]:
-                    self._contadores[jugador][accion] += 1
+        if self._puesto is None:
+            return
 
-    # Convierte el teclado en direcciones discretas y acciones para el servidor.
-    def _leer_controles(self) -> dict[str, dict[str, int]]:
+        teclas = self._teclas[self._puesto]
+
+        for accion in ("shoot", "interact"):
+            if tecla == teclas[accion]:
+                self._contadores[accion] += 1
+
+
+    # Obtiene los controles del jugador asignado por el servidor.
+    def _leer_controles(self) -> dict[str, int]:
+        teclas = self._teclas[self._puesto]
         presionadas = pygame.key.get_pressed()
+
         entradas = {
-            jugador: {
-                "x": int(presionadas[t["right"]]) - int(presionadas[t["left"]]),
-                "y": int(presionadas[t["down"]]) - int(presionadas[t["up"]]),
-                "interact": self._contadores[jugador]["interact"],
-                "shoot": self._contadores[jugador]["shoot"],
-            }
-            for jugador, t in self._teclas.items()
+            "x": int(presionadas[teclas["right"]]) - int(presionadas[teclas["left"]]),
+            "y": int(presionadas[teclas["down"]]) - int(presionadas[teclas["up"]]),
+            "interact": self._contadores["interact"],
+            "shoot": self._contadores["shoot"],
         }
+
         if self._control is None:
             return entradas
 
         control = self._control.leer()
+
         if control.x or control.y:
-            entradas["red"]["x"] = control.x
-            entradas["red"]["y"] = control.y
+            entradas["x"] = control.x
+            entradas["y"] = control.y
+
         if control.interactuar:
-            self._contadores["red"]["interact"] += 1
+            self._contadores["interact"] += 1
+
         if control.disparar:
-            self._contadores["red"]["shoot"] += 1
-        entradas["red"].update(self._contadores["red"])
+            self._contadores["shoot"] += 1
+
+        entradas.update(self._contadores)
         return entradas
+
+    def _intentar_iniciar_partida(self, estado: dict) -> None:
+        jugadores = estado.get("players", {})
+        partida = estado.get("match", {})
+
+        if (
+            self._puesto == "red"
+            and not self._inicio_solicitado
+            and not partida.get("started")
+            and not partida.get("finished")
+            and jugadores.get("red", {}).get("connected")
+            and jugadores.get("blue", {}).get("connected")
+        ):
+            self._inicio_solicitado = True
+            self._conexion.enviar_mensaje({
+                "type": "start",
+                "scenario": self._escenario,
+            })
+
+    # Muestra las notificaciones nuevas dirigidas al jugador local.
+    def _procesar_notificaciones(self, estado: dict) -> None:
+        colores = {
+            "info": (240, 240, 240),
+            "good": (120, 220, 150),
+            "warning": (255, 200, 100),
+            "danger": (255, 100, 100),
+        }
+
+        for notificacion in estado.get("notifications", []):
+            identificador = notificacion.get("id", 0)
+
+            if identificador <= self._ultima_notificacion_id:
+                continue
+            if (
+                self._puesto == "red"
+                and not estado.get("match", {}).get("started")
+                and notificacion.get("kind") == "reject"
+                and notificacion.get("for") == self._puesto
+                and notificacion.get("code") == "waiting_for_players"
+            ):
+                self._inicio_solicitado = False
+
+            destinatario = notificacion.get("for")
+            if destinatario is None or destinatario == self._puesto:
+                self._notificaciones.agregar(
+                    notificacion.get("message", ""),
+                    colores.get(notificacion.get("severity"), colores["info"]),
+                )
+
+            self._ultima_notificacion_id = identificador
 
     @staticmethod
     def _obtener_estado_jugador(jugador: dict) -> tuple[str, tuple[int, int, int]]:
@@ -200,7 +261,7 @@ class Juego:
         if estado in ("stunned", "frozen") or jugador.get("frozen"):
             return "Inmovilizado", COLOR_INMOVILIZADO
 
-        if jugador.get("interacting"):
+        if jugador.get("extracting"):
             return "Extrayendo energia", COLOR_EXTRAYENDO
 
         return "Normal", COLOR_NORMAL
@@ -212,6 +273,16 @@ class Juego:
             return "Estado desconocido", (180, 180, 180)
 
         operador = reactor.get("operator")
+        estado = reactor.get("status")
+
+        if estado == "overload":
+            return "Reactor sobrecargado", (255, 180, 80)
+
+        if estado == "available":
+            return "Reactor disponible", (120, 220, 150)
+
+        if estado == "in_use" and operador is None:
+            return "Reactor ocupado", (255, 180, 80)
 
         if operador is None:
             return "Sin operador", (120, 220, 150)

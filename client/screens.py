@@ -67,7 +67,7 @@ class Aplicacion:
     def actualizar_configuracion(self) -> None:
         if self._conexion_config is None:
             return
-        respuesta = self._conexion_config.obtener_estado()
+        respuesta = self._conexion_config.obtener_mensaje()
         if respuesta is None:
             return
         guardando = self._configuracion_cargada
@@ -189,6 +189,8 @@ class Aplicacion:
                 self.port,
                 self.usuarios.jugador_rojo,
                 self.usuarios.jugador_azul,
+                token=self.usuarios.token,
+                escenario=self._selector_escenarios.seleccionado,
             ).ejecutar()
         except (OSError, ValueError) as error:
             self.error = str(error)
@@ -240,9 +242,7 @@ class Aplicacion:
                         self.pantalla_actual = "escenarios"
 
                     elif destino == "confirmar_escenario":
-                        if self.usuarios.preparar_segundo_jugador():
-                            self.esperando_segundo_jugador = True
-                            self.pantalla_actual = "login"
+                        self._iniciar_juego()
                     elif destino == "configuracion":
                         self._abrir_configuracion()
                     elif destino == "perfil":

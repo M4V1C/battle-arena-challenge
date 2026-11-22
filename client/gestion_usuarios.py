@@ -42,6 +42,10 @@ class GestionUsuarios:
     def usuario(self) -> str | None:
         return SESION.usuario
 
+    @property
+    def token(self) -> str | None:
+        return SESION.usuario if SESION.activa else None
+
     def procesar_evento(self, evento):
         PANTALLAS[self.estado.pantalla]["eventos"](evento, self.estado)
 
