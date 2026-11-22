@@ -523,6 +523,7 @@ class EstadoJuego:
             self._rechazar(nombre, "player_trapped", "No puedes actuar mientras estás atrapado.")
             return
         if accion == "interact":
+            jugador.tiempo_interaccion = self.DURACION_INTERACCION
             puerta = self._puerta_cercana(jugador)
             if puerta is not None:
                 if self._puertas_abiertas[puerta.id] and any(

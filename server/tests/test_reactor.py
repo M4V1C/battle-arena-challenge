@@ -44,7 +44,8 @@ def test_interactuar_en_rango_congela_y_volver_a_interactuar_libera():
     juego.actualizar_entradas(entradas(red=(-1, 0, 1, 1)))
 
     estado = avanzar(juego, 0.5)
-    assert estado["players"]["red"]["frozen"] is True
+    assert estado["players"]["red"]["extracting"] is True
+    assert estado["players"]["red"]["frozen"] is False
     assert estado["reactor"]["operator"] == "red"
     assert estado["players"]["red"]["x"] == 740
     assert (estado["players"]["red"]["dir_x"], estado["players"]["red"]["dir_y"]) == (1, 0)
@@ -53,6 +54,7 @@ def test_interactuar_en_rango_congela_y_volver_a_interactuar_libera():
 
     juego.actualizar_entradas(entradas(red=(-1, 0, 1, 2)))
     estado = avanzar(juego, 0.5)
+    assert estado["players"]["red"]["extracting"] is False
     assert estado["players"]["red"]["frozen"] is False
     assert estado["reactor"]["operator"] is None
     assert estado["players"]["red"]["x"] < 740
