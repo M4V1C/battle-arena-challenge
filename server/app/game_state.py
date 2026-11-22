@@ -6,6 +6,7 @@ import threading
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.escenarios import cargar_escenario
 from app.game_config import CONFIGURACION_INICIAL, validar_configuracion
 from app.reglas import Reglas, cargar_reglas
 
@@ -143,6 +144,10 @@ class EstadoJuego:
         self._reglas = reglas if reglas is not None else cargar_reglas()
 
         self._configuracion = dict(CONFIGURACION_INICIAL)
+        self._posiciones_iniciales = {
+            "red": (100, 100),
+            "blue": (1460, 760),
+        }
         self._obstaculos = tuple(obstaculos)
         # Un mapa personalizado no recibe elementos del mapa inicial por sorpresa.
         self._puertas = tuple(PUERTAS_INICIALES if obstaculos is MAPA_INICIAL else ()) if puertas is None else tuple(puertas)
@@ -182,17 +187,36 @@ class EstadoJuego:
             return self._iniciar_bloqueado(configuracion)
 
     def _seleccionar_escenario(self, escenario: str) -> None:
-        if escenario not in ESCENARIOS:
+        try:
+            datos = cargar_escenario(escenario)
+        except (ValueError, OSError) as error:
             raise Rechazo(
                 "invalid_scenario",
-                "El escenario seleccionado no existe."
+                f"No se pudo cargar el escenario: {error}",
+            ) from error
+
+        if datos.ancho != self.ANCHO or datos.alto != self.ALTO:
+            raise Rechazo(
+                "invalid_scenario",
+                "Las dimensiones del escenario no son compatibles.",
             )
 
-        obstaculos, puertas = ESCENARIOS[escenario]
+        self._obstaculos = tuple(
+            Obstaculo(*rectangulo)
+            for rectangulo in datos.obstaculos
+        )
 
-        self._obstaculos = obstaculos
-        self._puertas = puertas
+        self._puertas = tuple(
+            Puerta(identificador, Obstaculo(*rectangulo))
+            for identificador, rectangulo in datos.puertas
+        )
+
+        self._reactor = Obstaculo(*datos.reactor)
+        self._posiciones_iniciales = dict(datos.posiciones)
+
         self._solidos = self._obstaculos + (self._reactor,)
+
+        # Se conserva la generación automática de trampas.
         self._trampas_fijas = None
 
     # Arranca la partida; el llamador ya posee el bloqueo.
@@ -341,10 +365,12 @@ class EstadoJuego:
         self._trampas = self._generar_trampas() if self._trampas_fijas is None else self._trampas_fijas
         anteriores = self._jugadores
         self._jugadores = {
-            "red": Jugador(100, 100, dir_x=1.0),
+            "red": Jugador(
+                *self._posiciones_iniciales["red"],
+                dir_x=1.0,
+            ),
             "blue": Jugador(
-                self.ANCHO - self.TAMANO_JUGADOR - 100,
-                self.ALTO - self.TAMANO_JUGADOR - 100,
+                *self._posiciones_iniciales["blue"],
                 dir_x=-1.0,
             ),
         }
