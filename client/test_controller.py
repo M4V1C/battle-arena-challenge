@@ -9,7 +9,6 @@ import pygame
 from controller import ControlSDL, EntradaControl, NormalizadorControl
 from controller_probe import DemostracionControl, ejecutar
 from game import Juego
-from server.tests.test_reactor import entradas
 
 
 class NormalizadorTest(unittest.TestCase):
