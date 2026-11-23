@@ -1,0 +1,62 @@
+from fastapi.testclient import TestClient
+
+from app.auth_store import AlmacenCuentas
+from app.main import app
+from app.resultados_store import AlmacenResultados
+
+
+def test_webapp_es_servida(monkeypatch, tmp_path):
+    import app.main as modulo
+
+    monkeypatch.setattr(modulo, "cuentas", AlmacenCuentas(tmp_path / "usuarios.json", tmp_path / "sesiones.json"))
+    monkeypatch.setattr(modulo, "resultados", AlmacenResultados(tmp_path / "resultados.json"))
+    cliente = TestClient(modulo.app)
+
+    respuesta = cliente.get("/webapp/")
+
+    assert respuesta.status_code == 200
+    assert "Battle Arena" in respuesta.text
+    assert "app.js" in respuesta.text
+
+
+def test_webapp_login_y_perfil(monkeypatch, tmp_path):
+    import app.main as modulo
+
+    cuentas = AlmacenCuentas(tmp_path / "usuarios.json", tmp_path / "sesiones.json")
+    resultados = AlmacenResultados(tmp_path / "resultados.json")
+    registro = cuentas.registrar("ana", "ana@example.com", "Clave123")
+    cuentas.verificar("ana", registro["codigo_verificacion"])
+    resultados.guardar_resultado(
+        "partida-web",
+        {"red": {"usuario": "ana", "score": 12}, "blue": {"usuario": "beto", "score": 8}},
+        "red",
+        90,
+    )
+
+    monkeypatch.setattr(modulo, "cuentas", cuentas)
+    monkeypatch.setattr(modulo, "resultados", resultados)
+    cliente = TestClient(modulo.app)
+
+    login = cliente.post("/auth/login", json={"identificador": "ana", "clave": "Clave123"})
+    assert login.status_code == 200
+
+    perfil = cliente.get("/usuarios/ana/perfil")
+    assert perfil.status_code == 200
+    assert perfil.json()["usuario"] == "ana"
+    assert perfil.json()["estadisticas"]["puntaje_total"] == 12
+
+    historial = cliente.get("/usuarios/ana/historial")
+    assert historial.status_code == 200
+    assert historial.json()["historial"][0]["match_id"] == "partida-web"
+
+
+def test_google_sin_configuracion_retorna_error_controlado(monkeypatch):
+    import app.main as modulo
+
+    monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GOOGLE_CLIENT_SECRET", raising=False)
+    cliente = TestClient(modulo.app)
+
+    respuesta = cliente.post("/auth/social/google/start", json={"redirect_uri": "http://127.0.0.1:8000/auth/social/google/callback"})
+
+    assert respuesta.status_code == 503

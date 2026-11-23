@@ -1,7 +1,11 @@
 import threading
 from contextlib import asynccontextmanager
 
+from pathlib import Path
+
 from fastapi import FastAPI, HTTPException
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.socket_server import HOST, PORT, crear_socket_servidor, servir
@@ -22,6 +26,9 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="Battle Arena Challenge", lifespan=lifespan)
+WEB_DIR = Path(__file__).resolve().parents[1] / "web"
+app.mount("/webapp", StaticFiles(directory=WEB_DIR, html=True), name="webapp")
+
 cuentas = AlmacenCuentas()
 resultados = AlmacenResultados()
 social = AlmacenLoginSocial(cuentas)
@@ -188,7 +195,7 @@ def google_callback(code: str, state: str):
     except (urllib.error.URLError, urllib.error.HTTPError, KeyError, ValueError) as error:
         raise HTTPException(status_code=400, detail=f"No se pudo completar Google login: {error}") from error
 
-    return login
+    return RedirectResponse(url=f"/webapp/?google_state={state}", status_code=303)
 
 
 @app.get("/auth/social/google/status")
