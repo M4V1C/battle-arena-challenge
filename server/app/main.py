@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 from app.socket_server import HOST, PORT, crear_socket_servidor, servir
 from app.auth_store import AlmacenCuentas
 from app.resultados_store import AlmacenResultados
+from app.social_store import AlmacenLoginSocial
 
 # Context manager para el ciclo de vida del servidor de sockets
 @asynccontextmanager
@@ -23,6 +24,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Battle Arena Challenge", lifespan=lifespan)
 cuentas = AlmacenCuentas()
 resultados = AlmacenResultados()
+social = AlmacenLoginSocial(cuentas)
 
 
 class Registro(BaseModel):
@@ -116,6 +118,84 @@ def listar_usuarios():
     return {"usuarios": cuentas.listar()}
 
 
+@app.post("/auth/social/google/start")
+def iniciar_google(datos: dict):
+    redirect_uri = datos.get("redirect_uri", "http://127.0.0.1:8000/auth/social/google/callback")
+    flujo = social.iniciar_google(redirect_uri)
+    import os
+    client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
+    if not client_id:
+        raise HTTPException(status_code=503, detail="Google OAuth no está configurado.")
+    from urllib.parse import urlencode
+    params = urlencode({
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "state": flujo["state"],
+        "access_type": "online",
+        "prompt": "select_account",
+    })
+    return {
+        "authorization_url": "https://accounts.google.com/o/oauth2/v2/auth?" + params,
+        "state": flujo["state"],
+    }
+
+
+@app.get("/auth/social/google/callback")
+def google_callback(code: str, state: str):
+    import json
+    import os
+    import urllib.parse
+    import urllib.request
+    import urllib.error
+
+    client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
+    client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "")
+    redirect_uri = os.environ.get(
+        "GOOGLE_REDIRECT_URI",
+        "http://127.0.0.1:8000/auth/social/google/callback",
+    )
+    if not client_id or not client_secret:
+        raise HTTPException(status_code=503, detail="Google OAuth no está configurado.")
+
+    try:
+        body = urllib.parse.urlencode({
+            "code": code,
+            "client_id": client_id,
+            "client_secret": client_secret,
+            "redirect_uri": redirect_uri,
+            "grant_type": "authorization_code",
+        }).encode("utf-8")
+        with urllib.request.urlopen(
+            urllib.request.Request("https://oauth2.googleapis.com/token", data=body, method="POST"),
+            timeout=10,
+        ) as respuesta:
+            tokens = json.loads(respuesta.read().decode("utf-8"))
+
+        access_token = tokens["access_token"]
+        peticion = urllib.request.Request("https://openidconnect.googleapis.com/v1/userinfo")
+        peticion.add_header("Authorization", "Bearer " + access_token)
+        with urllib.request.urlopen(peticion, timeout=10) as respuesta:
+            perfil = json.loads(respuesta.read().decode("utf-8"))
+
+        login = social.completar_google(
+            state,
+            google_subject=str(perfil["sub"]),
+            correo=str(perfil.get("email", "")),
+            nombre=perfil.get("name"),
+        )
+    except (urllib.error.URLError, urllib.error.HTTPError, KeyError, ValueError) as error:
+        raise HTTPException(status_code=400, detail=f"No se pudo completar Google login: {error}") from error
+
+    return login
+
+
+@app.get("/auth/social/google/status")
+def google_estado(state: str):
+    return social.estado_google(state)
+
+
 @app.post("/auth/validate")
 def validar_sesion(token: dict):
     usuario = cuentas.validar_sesion(token.get("token"))
@@ -161,11 +241,13 @@ def ranking():
 
 @app.get("/usuarios/{usuario}/historial")
 def historial_usuario(usuario: str):
+    usuario = usuario.strip().lower()
     return {"usuario": usuario, "historial": resultados.historial(usuario)}
 
 
 @app.get("/usuarios/{usuario}/perfil")
 def perfil_usuario(usuario: str):
+    usuario = usuario.strip().lower()
     ranking_ordenado = resultados.ranking()
     posicion = next((fila["posicion"] for fila in ranking_ordenado if fila["usuario"] == usuario), None)
     historial = resultados.historial(usuario)

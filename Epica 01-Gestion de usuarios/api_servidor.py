@@ -2,6 +2,7 @@ import json
 import os
 import urllib.error
 import urllib.request
+import urllib.parse
 
 
 BASE_URL = os.environ.get("BATTLE_API_URL", "http://127.0.0.1:8000").rstrip("/")
@@ -45,7 +46,8 @@ def solicitar_recuperacion(correo: str):
 
 
 def perfil(usuario: str):
-    return llamar("GET", f"/usuarios/{usuario}/perfil")
+    usuario_codificado = urllib.parse.quote(usuario.strip(), safe="")
+    return llamar("GET", f"/usuarios/{usuario_codificado}/perfil")
 
 
 def ranking():
@@ -53,11 +55,20 @@ def ranking():
 
 
 def historial(usuario: str):
-    return llamar("GET", f"/usuarios/{usuario}/historial")
+    usuario_codificado = urllib.parse.quote(usuario.strip(), safe="")
+    return llamar("GET", f"/usuarios/{usuario_codificado}/historial")
 
 
 def restablecer(correo: str, codigo: str, clave_nueva: str):
     return llamar("POST", "/auth/recovery/reset", {"correo": correo, "codigo": codigo, "clave_nueva": clave_nueva})
+
+
+def iniciar_google():
+    return llamar("POST", "/auth/social/google/start", {})
+
+
+def estado_google(state: str):
+    return llamar("GET", f"/auth/social/google/status?state={state}")
 
 
 def reenviar_verificacion(usuario: str):

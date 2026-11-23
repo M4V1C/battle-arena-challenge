@@ -53,6 +53,27 @@ def test_estado_final_incluye_match_id_y_game_over():
     assert estado["match"]["game_over"]["match_id"] == estado["match"]["match_id"]
 
 
+def test_login_social_google_vincula_o_crea_cuenta(tmp_path):
+    from app.auth_store import AlmacenCuentas
+
+    cuentas = AlmacenCuentas(tmp_path / "usuarios.json", tmp_path / "sesiones.json")
+
+    login_nuevo = cuentas.login_social_google(
+        google_subject="google-123",
+        correo="persona@example.com",
+        nombre="Persona Uno",
+    )
+    login_vinculado = cuentas.login_social_google(
+        google_subject="google-123",
+        correo="persona@example.com",
+        nombre="Persona Uno",
+    )
+
+    assert login_nuevo["usuario"]
+    assert login_nuevo["proveedor"] == "google"
+    assert login_vinculado["token"]
+
+
 def test_endpoints_rest_principales(tmp_path, monkeypatch):
     import app.main as modulo
 

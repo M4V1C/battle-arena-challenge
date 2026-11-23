@@ -181,6 +181,48 @@ class AlmacenCuentas:
             self._guardar_json(self.ruta_usuarios, self._usuarios)
             return {"ok": True, "codigo_verificacion": codigo}
 
+    def login_social_google(self, google_subject: str, correo: str, nombre: str | None = None) -> dict[str, Any]:
+        correo = correo.strip().lower()
+        nombre = (nombre or correo.split("@", 1)[0]).strip()
+        with self._bloqueo:
+            cuenta = next((u for u in self._usuarios if u.get("google_subject") == google_subject), None)
+            if cuenta is None:
+                cuenta = next((u for u in self._usuarios if u["correo"].lower() == correo), None)
+            if cuenta is None:
+                cuenta = {
+                    "usuario": nombre[:20],
+                    "correo": correo,
+                    "contrasena_sal": "",
+                    "contrasena_hash": "",
+                    "correo_verificado": True,
+                    "estadisticas": {"partidas": 0, "victorias": 0, "derrotas": 0, "puntaje_total": 0},
+                    "historial": [],
+                    "avatar": "default",
+                }
+                base = cuenta["usuario"]
+                sufijo = 1
+                while any(u["usuario"].lower() == cuenta["usuario"].lower() for u in self._usuarios):
+                    cuenta["usuario"] = f"{base[:15]}_{sufijo}"[:20]
+                    sufijo += 1
+                self._usuarios.append(cuenta)
+
+            cuenta["google_subject"] = google_subject
+            cuenta["correo"] = correo
+            cuenta["correo_verificado"] = True
+            self._guardar_json(self.ruta_usuarios, self._usuarios)
+
+            token = secrets.token_urlsafe(24)
+            self._sesiones[token] = {"usuario": cuenta["usuario"], "expira": time.time() + 24 * 60 * 60}
+            self._guardar_json(self.ruta_sesiones, self._sesiones)
+            return {
+                "ok": True,
+                "token": token,
+                "usuario": cuenta["usuario"],
+                "correo": cuenta["correo"],
+                "avatar": cuenta.get("avatar", "default"),
+                "proveedor": "google",
+            }
+
     def perfil(self, usuario: str) -> dict[str, Any]:
         cuenta = self._buscar_usuario(usuario)
         if cuenta is None:
