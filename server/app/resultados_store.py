@@ -76,3 +76,54 @@ class AlmacenResultados:
     def obtener(self, match_id: str) -> dict[str, Any] | None:
         with self._bloqueo:
             return next((p for p in self._datos["partidas"] if p.get("match_id") == match_id), None)
+
+    def ranking(self) -> list[dict[str, Any]]:
+        totales: dict[str, dict[str, int]] = {}
+        with self._bloqueo:
+            for partida in self._datos["partidas"]:
+                ganador = partida.get("winner")
+                for puesto, datos in partida.get("jugadores", {}).items():
+                    usuario = datos.get("usuario")
+                    if not usuario:
+                        continue
+                    fila = totales.setdefault(usuario, {
+                        "usuario": usuario,
+                        "puntaje_total": 0,
+                        "victorias": 0,
+                        "partidas": 0,
+                        "mejor_puntaje": 0,
+                    })
+                    puntaje = int(datos.get("score", 0))
+                    fila["puntaje_total"] += puntaje
+                    fila["partidas"] += 1
+                    fila["mejor_puntaje"] = max(fila["mejor_puntaje"], puntaje)
+                    if ganador == puesto:
+                        fila["victorias"] += 1
+        ranking = list(totales.values())
+        ranking.sort(key=lambda fila: (
+            -fila["puntaje_total"],
+            -fila["victorias"],
+            fila["usuario"].lower(),
+        ))
+        for posicion, fila in enumerate(ranking, 1):
+            fila["posicion"] = posicion
+        return ranking
+
+    def historial(self, usuario: str) -> list[dict[str, Any]]:
+        partidas = []
+        with self._bloqueo:
+            for partida in reversed(self._datos["partidas"]):
+                for puesto, datos in partida.get("jugadores", {}).items():
+                    if datos.get("usuario") == usuario:
+                        partidas.append({
+                            "match_id": partida["match_id"],
+                            "puesto": puesto,
+                            "resultado": "victoria" if partida.get("winner") == puesto else "derrota",
+                            "score": int(datos.get("score", 0)),
+                            "winner": partida.get("winner"),
+                            "elapsed": partida.get("elapsed", 0),
+                            "overtime": partida.get("overtime", 0),
+                            "condition": partida.get("condition"),
+                            "value": partida.get("value"),
+                        })
+        return partidas

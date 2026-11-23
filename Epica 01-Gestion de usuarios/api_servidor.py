@@ -48,6 +48,14 @@ def perfil(usuario: str):
     return llamar("GET", f"/usuarios/{usuario}/perfil")
 
 
+def ranking():
+    return llamar("GET", "/ranking")
+
+
+def historial(usuario: str):
+    return llamar("GET", f"/usuarios/{usuario}/historial")
+
+
 def restablecer(correo: str, codigo: str, clave_nueva: str):
     return llamar("POST", "/auth/recovery/reset", {"correo": correo, "codigo": codigo, "clave_nueva": clave_nueva})
 

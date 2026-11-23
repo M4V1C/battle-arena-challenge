@@ -184,13 +184,34 @@ def calcular_ranking(usuarios, nombre_usuario, tamano_top=5):
 # ---------------------------------------------------------------------
 def obtener_perfil(nombre_usuario):
     try:
-        from api_servidor import perfil
+        from api_servidor import historial, perfil, ranking
         remoto = perfil(nombre_usuario)
-        estadisticas = remoto["estadisticas"]
-        partidas = estadisticas["partidas_jugadas"]
-        usuarios = cargar_usuarios()
-        ranking = calcular_ranking(usuarios, nombre_usuario)
-        return {**remoto, "ranking": ranking}
+        datos_ranking = ranking()["ranking"]
+        mi_fila = next((fila for fila in datos_ranking if fila["usuario"] == nombre_usuario), None)
+        top = [
+            {
+                "posicion": fila["posicion"],
+                "usuario": fila["usuario"],
+                "puntaje": fila["puntaje_total"],
+            }
+            for fila in datos_ranking[:5]
+        ]
+        ranking_perfil = {
+            "posicion": mi_fila["posicion"] if mi_fila else None,
+            "total": len(datos_ranking),
+            "mi_puntaje": mi_fila["puntaje_total"] if mi_fila else 0,
+            "top": top,
+        }
+        datos_historial = historial(nombre_usuario)["historial"]
+        historial_normalizado = []
+        for partida in datos_historial:
+            historial_normalizado.append({
+                "fecha": partida["match_id"],
+                "resultado": partida["resultado"],
+                "puntaje": partida["score"],
+                "duracion_seg": int(partida["elapsed"]),
+            })
+        return {**remoto, "ranking": ranking_perfil, "historial": historial_normalizado}
     except (ImportError, ValueError):
         pass
 

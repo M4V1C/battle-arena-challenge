@@ -84,3 +84,71 @@ def test_endpoints_rest_principales(tmp_path, monkeypatch):
     })
     assert guardado.status_code == 200
     assert cliente.get("/resultados/rest-match").status_code == 200
+
+
+def test_ranking_contiene_todos_los_usuarios_y_desempata(tmp_path, monkeypatch):
+    import app.main as modulo
+
+    almacen = AlmacenResultados(tmp_path / "resultados.json")
+    monkeypatch.setattr(modulo, "resultados", almacen)
+    almacen.guardar_resultado("m1", {
+        "red": {"usuario": "ana", "score": 10},
+        "blue": {"usuario": "beto", "score": 5},
+    }, "red", 60)
+    almacen.guardar_resultado("m2", {
+        "red": {"usuario": "ana", "score": 3},
+        "blue": {"usuario": "beto", "score": 8},
+    }, "blue", 60)
+
+    cliente = TestClient(modulo.app)
+    ranking = cliente.get("/ranking").json()["ranking"]
+
+    assert [fila["usuario"] for fila in ranking] == ["ana", "beto"]
+    assert ranking[0]["puntaje_total"] == 13
+    assert ranking[0]["victorias"] == 1
+
+
+def test_historial_pertenece_al_usuario_consultado(tmp_path, monkeypatch):
+    import app.main as modulo
+
+    almacen = AlmacenResultados(tmp_path / "resultados.json")
+    monkeypatch.setattr(modulo, "resultados", almacen)
+    almacen.guardar_resultado("m1", {
+        "red": {"usuario": "ana", "score": 10},
+        "blue": {"usuario": "beto", "score": 5},
+    }, "red", 60)
+
+    cliente = TestClient(modulo.app)
+
+    historial_ana = cliente.get("/usuarios/ana/historial").json()["historial"]
+    historial_beto = cliente.get("/usuarios/beto/historial").json()["historial"]
+
+    assert [fila["match_id"] for fila in historial_ana] == ["m1"]
+    assert historial_ana[0]["resultado"] == "victoria"
+    assert [fila["match_id"] for fila in historial_beto] == ["m1"]
+    assert historial_beto[0]["resultado"] == "derrota"
+
+
+def test_perfil_expone_resumen_de_historial(tmp_path, monkeypatch):
+    import app.main as modulo
+
+    cuentas = AlmacenCuentas(tmp_path / "usuarios.json", tmp_path / "sesiones.json")
+    cuentas.registrar("ana", "ana@example.com", "Clave123")
+    cuentas.verificar("ana", cuentas.listar()[0]["usuario"] if False else "000000") if False else None
+
+    almacen = AlmacenResultados(tmp_path / "resultados.json")
+    almacen.guardar_resultado("m1", {
+        "red": {"usuario": "ana", "score": 10},
+        "blue": {"usuario": "beto", "score": 5},
+    }, "red", 60)
+
+    monkeypatch.setattr(modulo, "cuentas", cuentas)
+    monkeypatch.setattr(modulo, "resultados", almacen)
+    cliente = TestClient(modulo.app)
+
+    perfil = cliente.get("/usuarios/ana/perfil").json()
+
+    assert perfil["usuario"] == "ana"
+    assert perfil["estadisticas"]["partidas_jugadas"] == 1
+    assert perfil["estadisticas"]["victorias"] == 1
+    assert perfil["estadisticas"]["puntaje_total"] == 10

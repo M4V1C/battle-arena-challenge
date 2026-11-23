@@ -155,47 +155,37 @@ def obtener_resultado(match_id: str):
 
 @app.get("/ranking")
 def ranking():
-    partidas = resultados.listar()
-    totales: dict[str, dict[str, int]] = {}
-    for partida in partidas:
-        for puesto, datos in partida["jugadores"].items():
-            usuario = datos.get("usuario")
-            if not usuario:
-                continue
-            fila = totales.setdefault(usuario, {"puntaje_total": 0, "victorias": 0})
-            fila["puntaje_total"] += int(datos.get("score", 0))
-            if partida.get("winner") == puesto:
-                fila["victorias"] += 1
-    ranking_ordenado = sorted(
-        ({"usuario": usuario, **valores} for usuario, valores in totales.items()),
-        key=lambda fila: (-fila["puntaje_total"], -fila["victorias"], fila["usuario"].lower()),
-    )
-    return {"ranking": ranking_ordenado}
-
-
-@app.get("/usuarios/{usuario}/perfil")
-def perfil_usuario(usuario: str):
-    try:
-        return cuentas.perfil(usuario)
-    except ValueError as error:
-        raise HTTPException(status_code=404, detail=str(error)) from error
+    ranking_ordenado = resultados.ranking()
+    return {"ranking": ranking_ordenado, "total": len(ranking_ordenado)}
 
 
 @app.get("/usuarios/{usuario}/historial")
 def historial_usuario(usuario: str):
-    partidas = []
-    for partida in resultados.listar():
-        for puesto, datos in partida["jugadores"].items():
-            if datos.get("usuario") == usuario:
-                partidas.append({
-                    "match_id": partida["match_id"],
-                    "puesto": puesto,
-                    "score": datos.get("score", 0),
-                    "winner": partida.get("winner"),
-                    "elapsed": partida.get("elapsed", 0),
-                    "overtime": partida.get("overtime", 0),
-                })
-    return {"usuario": usuario, "historial": partidas}
+    return {"usuario": usuario, "historial": resultados.historial(usuario)}
+
+
+@app.get("/usuarios/{usuario}/perfil")
+def perfil_usuario(usuario: str):
+    ranking_ordenado = resultados.ranking()
+    posicion = next((fila["posicion"] for fila in ranking_ordenado if fila["usuario"] == usuario), None)
+    historial = resultados.historial(usuario)
+    victorias = sum(1 for partida in historial if partida["resultado"] == "victoria")
+    puntaje_total = sum(partida["score"] for partida in historial)
+    tiempo_total = sum(float(partida["elapsed"]) for partida in historial)
+    return {
+        "usuario": usuario,
+        "posicion": posicion,
+        "estadisticas": {
+            "partidas_jugadas": len(historial),
+            "victorias": victorias,
+            "derrotas": len(historial) - victorias,
+            "puntaje_total": puntaje_total,
+            "mejor_puntaje": max((partida["score"] for partida in historial), default=0),
+            "tiempo_total_seg": int(tiempo_total),
+        },
+        "historial": historial,
+    }
+
 
 
 if __name__ == "__main__":
