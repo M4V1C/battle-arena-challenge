@@ -3,6 +3,7 @@
 import math
 import random
 import threading
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -224,6 +225,8 @@ class EstadoJuego:
         configuracion = validar_configuracion(configuracion)
         self._configuracion = configuracion
         self._reiniciar_estado()
+        self._match_id = str(uuid.uuid4())
+        self._resultado_persistido = False
         if configuracion["condition"] == "time":
             self._limite_tiempo = configuracion["value"] * 60
         self._iniciada = True
@@ -361,6 +364,8 @@ class EstadoJuego:
         self._limite_tiempo = None
         self._operador_reactor = None
         self._tiempo_reactor = 0.0
+        self._match_id = None
+        self._resultado_persistido = False
         self._puertas_abiertas = {puerta.id: False for puerta in self._puertas}
         self._trampas = self._generar_trampas() if self._trampas_fijas is None else self._trampas_fijas
         anteriores = self._jugadores
@@ -784,8 +789,22 @@ class EstadoJuego:
             "player_size": self.TAMANO_JUGADOR,
             "projectile_size": self.TAMANO_PROYECTIL,
             "match": {
-                "started": self._iniciada,        # nuevo
+                "match_id": self._match_id,
+                "started": self._iniciada,
                 "finished": self._terminada,
+                "game_over": {
+                    "match_id": self._match_id,
+                    "winner": self._ganador,
+                    "players": {
+                        nombre: {
+                            "username": jugador.username if hasattr(jugador, "username") else self._puestos[nombre],
+                            "score": jugador.puntos,
+                        }
+                        for nombre, jugador in self._jugadores.items()
+                    },
+                    "elapsed": self._tiempo_partida,
+                    "overtime": self._prorrogas,
+                } if self._terminada else None,
                 "elapsed": self._tiempo_partida,
                 "condition": self._configuracion["condition"],
                 "value": self._configuracion["value"],

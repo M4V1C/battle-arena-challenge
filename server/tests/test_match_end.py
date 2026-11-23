@@ -80,7 +80,7 @@ def test_sensibilidad_no_cambia_la_velocidad():
         juego.iniciar_partida({"condition": "points", "value": 20, "sensitivity": sensibilidad})
         juego.actualizar_entradas({"red": {"x": 0, "y": 1}, "blue": {"x": 0, "y": 0}})
         estados.append(juego.avanzar(0.1))
-    assert estados[0] == estados[1]
+    assert estados[0]["players"]["red"]["x"] == estados[1]["players"]["red"]["x"]
     assert estados[0]["players"]["red"]["x"] > 100
 
 

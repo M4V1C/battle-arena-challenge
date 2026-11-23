@@ -10,7 +10,7 @@
 #     1. IMPORTACIONES
 #     2. CONFIGURACIÓN (tamaños, colores, correo, archivo .json)
 #     3. INICIALIZACIÓN DE PYGAME (ventana y fuentes)
-#     4. BASE DE DATOS (leer/escribir usuarios.json y buscar cuentas)
+#     4. ALMACENAMIENTO JSON (leer/escribir usuarios.json y buscar cuentas)
 #     5. VALIDACIONES (usuario, correo, contraseña, API de correo)
 #     6. ENVÍO DE CORREOS (verificación y recuperación)
 #     7. SESIÓN DEL JUGADOR (quién ha iniciado sesión)
@@ -78,8 +78,8 @@ ARCHIVO_USUARIOS = os.path.join(os.path.dirname(os.path.abspath(__file__)), "usu
 # Más seguro: guardarlas como variables de entorno en vez de escribirlas aquí.
 SMTP_SERVIDOR = "smtp.gmail.com"
 SMTP_PUERTO = 587
-SMTP_USUARIO = os.environ.get("REACTOR_SMTP_USER", "andrewbp32@gmail.com")
-SMTP_CLAVE = os.environ.get("REACTOR_SMTP_PASS", "orwa vues mppv ijbk")
+SMTP_USUARIO = os.environ.get("REACTOR_SMTP_USER", "")
+SMTP_CLAVE = os.environ.get("REACTOR_SMTP_PASS", "")
 
 # --- Códigos de verificación y de recuperación ---
 MINUTOS_VALIDEZ_CODIGO = 15        # Después de este tiempo el código de verificación expira
@@ -108,7 +108,7 @@ FUENTE_ERROR = pygame.font.SysFont("arial", 16)   # Pequeña pero legible
 
 
 # =====================================================================
-# 4. BASE DE DATOS (usuarios.json)
+# 4. ALMACENAMIENTO JSON (usuarios.json)
 # =====================================================================
 # El archivo contiene una LISTA de usuarios. Cada usuario es un diccionario:
 # {

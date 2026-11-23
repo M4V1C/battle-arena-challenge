@@ -11,6 +11,7 @@ from typing import Any, Callable
 from app.game_state import EstadoJuego, Rechazo
 from app.game_config import CONFIGURACION_INICIAL, AlmacenConfiguracion
 from app.avatar_store import AlmacenAvatares
+from app.resultados_store import AlmacenResultados
 
 HOST = os.getenv("SOCKET_HOST", "0.0.0.0")
 PORT = int(os.getenv("SOCKET_PORT", "9000"))
@@ -239,6 +240,7 @@ def servir(
     """Acepta conexiones y crea un hilo por cliente sobre el mismo estado."""
     estado_juego = EstadoJuego()
     configuracion = AlmacenConfiguracion()
+    resultados = AlmacenResultados()
     detener_simulacion = threading.Event()
     avatares = AlmacenAvatares()
 
@@ -250,7 +252,18 @@ def servir(
             ahora = time.monotonic()
             # Limita la corrección de pausa; no teletransporta jugadores al reanudar.
             delta_t = min(ahora - ultimo_tick, DELTA_MAXIMO)
-            estado_juego.avanzar(delta_t)
+            estado = estado_juego.avanzar(delta_t)
+            partida = estado.get("match", {})
+            if partida.get("finished") and partida.get("match_id"):
+                resultados.guardar_resultado(
+                    partida["match_id"],
+                    estado["players"],
+                    partida.get("winner"),
+                    partida.get("elapsed", 0),
+                    partida.get("overtime", 0),
+                    partida.get("condition"),
+                    partida.get("value"),
+                )
             ultimo_tick = ahora
             detener_simulacion.wait(intervalo)
 

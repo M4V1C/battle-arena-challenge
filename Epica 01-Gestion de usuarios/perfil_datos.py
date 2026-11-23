@@ -183,6 +183,17 @@ def calcular_ranking(usuarios, nombre_usuario, tamano_top=5):
 # PERFIL COMPLETO (lo que muestra la pantalla de perfil)
 # ---------------------------------------------------------------------
 def obtener_perfil(nombre_usuario):
+    try:
+        from api_servidor import perfil
+        remoto = perfil(nombre_usuario)
+        estadisticas = remoto["estadisticas"]
+        partidas = estadisticas["partidas_jugadas"]
+        usuarios = cargar_usuarios()
+        ranking = calcular_ranking(usuarios, nombre_usuario)
+        return {**remoto, "ranking": ranking}
+    except (ImportError, ValueError):
+        pass
+
     """
     Lee usuarios.json y devuelve un diccionario con TODO lo que necesita la
     pantalla de perfil, o None si la cuenta no existe.

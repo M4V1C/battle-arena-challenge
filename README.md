@@ -12,8 +12,8 @@ La descripción del producto, el MVP, la arquitectura, los sprints y el equipo e
 ├── client/                  # Cliente local de dos jugadores con Pygame
 ├── docs/                    # Documentación del producto
 ├── server/                  # API FastAPI, Dockerfile, dependencias y pruebas
-├── .env.example             # Plantilla de configuración local de PostgreSQL
-├── docker-compose.yml       # API y PostgreSQL 16
+├── .env.example             # Plantilla de variables opcionales, como SMTP
+├── docker-compose.yml       # Contenedor del servidor FastAPI/TCP
 └── README.md
 ```
 
@@ -25,7 +25,7 @@ La descripción del producto, el MVP, la arquitectura, los sprints y el equipo e
 - [VS Code](https://code.visualstudio.com/) recomendado, con las extensiones **Python** y **Pylance** de Microsoft.
 - Acceso al repositorio de GitHub y al Board/Wiki de Azure DevOps del equipo.
 
-Docker ejecuta su propio Python dentro del contenedor; no utiliza el entorno virtual local. No se necesita instalar PostgreSQL directamente en Windows.
+Docker ejecuta su propio Python dentro del contenedor; no utiliza el entorno virtual local.
 
 ## Preparación inicial (cada integrante)
 
@@ -90,9 +90,7 @@ Copiar la plantilla **solo si todavía no existe un archivo `.env`**:
 Copy-Item .env.example .env
 ```
 
-Editar `.env` y asignar una contraseña local propia a `POSTGRES_PASSWORD`. `POSTGRES_USER` y `POSTGRES_DB` definen el usuario y la base de datos iniciales. El archivo `.env` está ignorado por Git; no compartir contraseñas ni confirmarlo en commits.
-
-Docker Compose lee este archivo para configurar PostgreSQL. Actualmente la API solo expone `/health`: **todavía no tiene conexión a la base de datos**, por lo que estas variables no configuran una conexión de FastAPI.
+Editar `.env` solo para configurar las variables SMTP si se desean enviar códigos de correo. El archivo `.env` está ignorado por Git; no compartir contraseñas ni confirmarlo en commits. El proyecto no usa una conexión a datos externos.
 
 ## Ejecutar con Docker
 
@@ -102,14 +100,14 @@ Desde la raíz del repositorio:
 docker compose up --build -d
 docker compose ps
 Invoke-RestMethod http://localhost:8000/health
-docker compose exec db sh -c 'pg_isready -U "$POSTGRES_USER" -d "$POSTGRES_DB"'
+
 ```
 
-Comprobar que ambos contenedores estén en ejecución, que `/health` devuelva `{"status":"ok"}` (PowerShell lo muestra como un objeto) y que PostgreSQL indique `accepting connections`. El endpoint comprueba la API, no la conectividad con PostgreSQL.
+Comprobar que el contenedor esté en ejecución y que `/health` devuelva `{"status":"ok"}` (PowerShell lo muestra como un objeto).
 
 - API: http://localhost:8000
 - Documentación interactiva de FastAPI: http://localhost:8000/docs
-- PostgreSQL: puerto `5432` dentro de la red de Compose; no está publicado al equipo anfitrión.
+- Juego TCP: puerto `9000`
 
 Comandos de uso diario:
 
@@ -118,7 +116,7 @@ docker compose logs -f
 docker compose down
 ```
 
-`down` detiene y elimina los contenedores, pero conserva los datos en el volumen `dbdata`. **No usar `docker compose down -v` salvo que se quiera borrar la base de datos local.** Cambiar las variables de PostgreSQL en `.env` no modifica usuarios, contraseñas ni bases ya inicializados en ese volumen.
+`down` detiene y elimina los contenedores. La configuración de partida se conserva mediante el volumen montado en `server/data`. Las cuentas y avatares permanecen en los archivos locales del cliente.
 
 La imagen no monta el código local: después de modificar el servidor, ejecutar nuevamente `docker compose up --build -d`.
 
@@ -157,7 +155,7 @@ Con el entorno virtual activado, desde la raíz:
 python -m pytest .\server\tests
 ```
 
-Si la terminal ya está en la carpeta `server`, usar `python -m pytest`. Las pruebas actuales verifican `/health` y una ruta inexistente; no requieren Docker ni una base de datos.
+Si la terminal ya está en la carpeta `server`, usar `python -m pytest`. Las pruebas actuales verifican `/health`, reglas del juego y una ruta inexistente; no requieren Docker ni persistencia externa.
 
 El workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) usa Python 3.12, instala las dependencias del servidor, ejecuta `python -m pytest` desde `server` y construye las imágenes con Docker Compose. Se activa en cada *push* a `main` y en cada *pull request* dirigido a `main`; no se ejecuta por un *push* a `develop` por sí solo.
 
@@ -169,7 +167,7 @@ El workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) usa Python 3.
 | `docker` no se reconoce | Verificar la instalación de Docker Desktop y reiniciar VS Code por completo para recargar el PATH. |
 | Docker muestra error de conexión o HTTP 500 | Revisar el estado y los avisos de Docker Desktop; ejecutar `docker version` y `wsl --list --verbose`. En el backend WSL2 debe estar disponible `docker-desktop`. Si la instalación solicita reiniciar Windows, hacerlo. No borrar distribuciones ni volúmenes para intentar repararlo. |
 | El puerto `8000` está ocupado | Detener la otra instancia de la API o usar un puerto distinto al ejecutar Uvicorn localmente. |
-| PostgreSQL aún no acepta conexiones | Esperar a que termine la inicialización y consultar `docker compose logs db`. El orden de arranque de Compose no garantiza que la base ya esté lista. |
+| El puerto `9000` está ocupado | Detener la instancia que usa el puerto o cambiar `SOCKET_PORT` y `SERVER_PORT` de forma coordinada. |
 
 ## Flujo de trabajo con Git
 
@@ -178,7 +176,7 @@ El workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) usa Python 3.
 - `main` debe recibir cambios mediante *pull request*, con el CI en verde y al menos una revisión.
 - Usar mensajes [Conventional Commits](https://www.conventionalcommits.org/), por ejemplo `feat(server): agrega endpoint de salud`.
 - Los commits referencian el work item de Azure DevOps (por ejemplo `AB#123`) para mantener trazabilidad con el Board.
-- No versionar `.env`, `.venv`, credenciales ni datos locales de PostgreSQL.
+- No versionar `.env`, `.venv`, credenciales ni datos locales de cuentas o avatares.
 
 ## Documentación
 

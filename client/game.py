@@ -4,6 +4,11 @@ from importlib import import_module
 from pathlib import Path
 import sys
 
+import json
+import os
+import urllib.request
+import urllib.error
+
 import pygame
 
 from controller import ControlSDL
@@ -75,6 +80,7 @@ class Juego:
         self._ultima_notificacion_id = 0
         self._puesto: str | None = None
         self._inicio_solicitado = False
+        self._resultado_enviado = False
 
         self._avatares = RepositorioAvatares().obtener()
         self._renderizador_avatares = RenderizadorAvatares()
@@ -153,7 +159,7 @@ class Juego:
                             if usuario:
                                 self._nombres[puesto] = usuario
                         if respuesta.get("match", {}).get("finished"):
-
+                            self._registrar_resultado_servidor()
                             pantalla_victoria = PantallaVictoria(estado=self._estado,avatares=self._avatares, nombres=self._nombres,)
                             return pantalla_victoria.ejecutar()
                     elif respuesta.get("type") == "error":
@@ -168,6 +174,43 @@ class Juego:
                 self._control.cerrar()
                 self._control = None
             self._conexion.cerrar()
+
+    def _registrar_resultado_servidor(self) -> None:
+        if self._resultado_enviado:
+            return
+        match = self._estado.get("match", {})
+        match_id = match.get("match_id")
+        if not match_id:
+            return
+
+        jugadores = self._estado.get("players", {})
+        cuerpo = json.dumps({
+            "match_id": match_id,
+            "jugadores": {
+                puesto: {
+                    "usuario": jugadores.get(puesto, {}).get("username") or self._nombres[puesto],
+                    "score": int(jugadores.get(puesto, {}).get("score", 0)),
+                }
+                for puesto in ("red", "blue")
+            },
+            "winner": match.get("winner"),
+            "elapsed": float(match.get("elapsed", 0)),
+            "overtime": int(match.get("overtime", 0)),
+            "condition": match.get("condition"),
+            "value": match.get("value"),
+        }).encode("utf-8")
+        base_url = os.environ.get("BATTLE_API_URL", "http://127.0.0.1:8000").rstrip("/")
+        peticion = urllib.request.Request(
+            base_url + "/resultados",
+            data=cuerpo,
+            method="POST",
+            headers={"Content-Type": "application/json"},
+        )
+        try:
+            urllib.request.urlopen(peticion, timeout=5).read()
+            self._resultado_enviado = True
+        except (urllib.error.URLError, TimeoutError, OSError):
+            self._mensaje = "No se pudo guardar el resultado en el servidor."
 
     # Cuenta las pulsaciones de disparo e interacción del jugador local.
     def _registrar_accion(self, tecla: int) -> None:
