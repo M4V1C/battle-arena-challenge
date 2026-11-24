@@ -18,6 +18,7 @@
 #  (el jugador los ve aunque haya cerrado y vuelto a abrir el juego).
 # =====================================================================
 
+import math
 import time
 from datetime import datetime, timezone
 
@@ -223,7 +224,7 @@ def obtener_perfil(nombre_usuario, token=None):
                 "fecha": formatear_fecha(partida.get("fecha")),
                 "resultado": partida["resultado"],
                 "puntaje": partida["score"],
-                "duracion_seg": int(partida["elapsed"]),
+                "duracion_seg": max(0, math.floor(float(partida["elapsed"]) + 0.5)),
             })
         est = dict(remoto.get("estadisticas", {}))
         partidas = int(est.get("partidas_jugadas", 0))

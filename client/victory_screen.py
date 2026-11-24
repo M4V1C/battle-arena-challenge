@@ -64,8 +64,9 @@ class PantallaVictoria:
         self._ganador = partida.get("winner")
         self._puntos_rojo = jugadores.get("red", {}).get("score", 0)
         self._puntos_azul = jugadores.get("blue", {}).get("score", 0)
-        # Duración total de la partida, proporcionada por el servidor.
-        self._duracion = max(0, int(partida.get("elapsed", 0)))
+        # Duración total de la partida, proporcionada por el servidor. Se redondea
+        # al segundo más cercano (0,5 hacia arriba), igual que Math.round en la webapp.
+        self._duracion = max(0, math.floor(float(partida.get("elapsed", 0)) + 0.5))
         self._minutos, self._segundos = divmod(self._duracion, 60)
         # Determinar las posiciones finales según el ganador oficial.
         if self._ganador == "red":

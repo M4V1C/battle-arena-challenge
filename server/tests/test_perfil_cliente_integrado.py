@@ -88,6 +88,28 @@ def test_perfil_de_escritorio_sin_token_no_obtiene_datos_del_servidor(tmp_path, 
     assert perfil_datos.obtener_perfil("ana", "token-inventado") is None
 
 
+def test_duracion_del_historial_se_redondea_como_en_la_web(tmp_path, monkeypatch):
+    import app.main as main
+
+    cuentas = AlmacenCuentas(tmp_path / "usuarios.json", tmp_path / "sesiones.json")
+    registro = cuentas.registrar("ana", "ana@example.com", "Clave123")
+    cuentas.verificar("ana", registro["codigo_verificacion"])
+    token = cuentas.login("ana", "Clave123")["token"]
+    resultados = AlmacenResultados(tmp_path / "resultados.json")
+    jugadores = {"red": {"usuario": "ana", "score": 3}, "blue": {"usuario": "beto", "score": 1}}
+    # 59,999... es el tiempo real de una partida de 1 minuto; 59,4 debe quedarse en 59.
+    resultados.guardar_resultado("p-1", jugadores, "red", 59.99999999999764)
+    resultados.guardar_resultado("p-2", jugadores, "red", 59.4)
+    monkeypatch.setattr(main, "cuentas", cuentas)
+    monkeypatch.setattr(main, "resultados", resultados)
+    instalar_api_http(monkeypatch, main)
+    perfil_datos = importar_perfil_datos(monkeypatch)
+
+    perfil = perfil_datos.obtener_perfil("ana", token)
+
+    assert sorted(partida["duracion_seg"] for partida in perfil["historial"]) == [59, 60]
+
+
 def test_fecha_del_historial_se_muestra_en_hora_local_o_sin_fecha(monkeypatch):
     perfil_datos = importar_perfil_datos(monkeypatch)
     esperado = datetime(2026, 11, 24, 21, 5, tzinfo=timezone.utc).astimezone().strftime("%d/%m/%Y %H:%M")
