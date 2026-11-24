@@ -72,3 +72,4 @@ server/data/usuarios.json
 server/data/sesiones.json
 server/data/resultados.json
 client/data/avatars.json
+/_pytest*/
