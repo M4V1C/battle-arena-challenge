@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.game_config import CONFIGURACION_INICIAL, validar_configuracion
+from app.eventos import Evento, programar_eventos
 from app.guardianes import Guardian, TAMANO_GUARDIAN, guardianes_iniciales
 from app.reglas import Reglas, cargar_reglas
 
@@ -18,6 +19,7 @@ MAX_NOTIFICACIONES = 20
 # Estados del reactor en state.reactor.status.
 REACTOR_DISPONIBLE = "available"
 REACTOR_EN_USO = "in_use"
+REACTOR_SOBRECARGADO = "overload"
 
 
 class Rechazo(ValueError):
@@ -123,6 +125,7 @@ class EstadoJuego:
         trampas: tuple[Trampa, ...] | None = None,
         semilla: int | None = None,
         guardianes: tuple[Guardian, ...] | None = None,
+        eventos: bool | None = None,
     ):
         self._reglas = reglas if reglas is not None else cargar_reglas()
 
@@ -132,6 +135,12 @@ class EstadoJuego:
         self._puertas = tuple(PUERTAS_INICIALES if obstaculos is MAPA_INICIAL else ()) if puertas is None else tuple(puertas)
         self._trampas_fijas = None if trampas is None and obstaculos is MAPA_INICIAL else tuple(trampas or ())
         self._azar = random.Random(semilla)
+        if eventos is not None and not isinstance(eventos, bool):
+            raise ValueError("eventos debe ser un booleano.")
+        self._eventos_habilitados = (
+            obstaculos is MAPA_INICIAL and guardianes is None and
+            puertas is None and trampas is None
+        ) if eventos is None else eventos
         self._guardianes_configurados = (
             tuple(guardianes_iniciales(self.ANCHO, self.ALTO))
             if guardianes is None and obstaculos is MAPA_INICIAL
@@ -179,6 +188,10 @@ class EstadoJuego:
         if configuracion["condition"] == "time":
             self._limite_tiempo = configuracion["value"] * 60
         self._iniciada = True
+        horizonte = (configuracion["value"] * 60 if configuracion["condition"] == "time"
+                     else configuracion["value"] * self._reglas.intervalo_extraccion /
+                     self._reglas.puntos_por_energia)
+        self._eventos = programar_eventos(horizonte, self._azar) if self._eventos_habilitados else []
         return self._crear_estado()
 
     # Asigna un puesto al usuario: red al primero (anfitrion) y blue al segundo.
@@ -297,6 +310,9 @@ class EstadoJuego:
         self._limite_tiempo = None
         self._operador_reactor = None
         self._tiempo_reactor = 0.0
+        self._eventos: list[Evento] = []
+        self._energia_items: dict[str, Obstaculo] = {}
+        self._guardianes_extra_ids: set[str] = set()
         self._puertas_abiertas = {puerta.id: False for puerta in self._puertas}
         self._trampas = self._generar_trampas() if self._trampas_fijas is None else self._trampas_fijas
         self._guardianes = [Guardian(g.id, g.x, g.y) for g in self._guardianes_configurados]
@@ -353,6 +369,92 @@ class EstadoJuego:
             puerta.zona for puerta in self._puertas
             if not self._puertas_abiertas[puerta.id]
         )
+
+    def _evento_activo(self, tipo: str) -> bool:
+        return any(e.tipo == tipo and e.estado == "active" for e in self._eventos)
+
+    def _posiciones_libres(self, cantidad: int, tamano: int) -> list[Obstaculo]:
+        candidatos = []
+        ocupados = self._solidos_actuales() + tuple(self._energia_items.values())
+        ocupados += tuple(t.zona for t in self._trampas)
+        ocupados += tuple(Obstaculo(g.x, g.y, TAMANO_GUARDIAN, TAMANO_GUARDIAN)
+                          for g in self._guardianes)
+        for y in range(80, self.ALTO - tamano, 80):
+            for x in range(80, self.ANCHO - tamano, 80):
+                zona = Obstaculo(x, y, tamano, tamano)
+                if any(o.colisiona(x, y, tamano) for o in ocupados):
+                    continue
+                if any(math.dist((x, y), (j.x, j.y)) < 120
+                       for j in self._jugadores.values()):
+                    continue
+                candidatos.append(zona)
+        if len(candidatos) < cantidad:
+            raise ValueError("No hay espacio libre para el evento.")
+        return self._azar.sample(candidatos, cantidad)
+
+    def _iniciar_evento(self, evento: Evento) -> None:
+        evento.estado = "active"
+        if evento.tipo == "energy":
+            self._energia_items[evento.id] = self._posiciones_libres(1, 32)[0]
+        elif evento.tipo == "extra_guardians":
+            for n, zona in enumerate(self._posiciones_libres(5, TAMANO_GUARDIAN), 1):
+                nombre = f"extra_{n}"
+                self._guardianes.append(Guardian(nombre, zona.x, zona.y))
+                self._guardianes_extra_ids.add(nombre)
+        elif evento.tipo == "overload":
+            self._operador_reactor = None
+            self._tiempo_reactor = 0.0
+        mensajes = {
+            "energy": f"Apareció energía extra: +{self._reglas.puntos_energia_extra} puntos para quien la tome.",
+            "extra_guardians": "Cinco guardianes adicionales entraron en la arena.",
+            "overload": "Reactor sobrecargado: extracción desactivada.",
+            "speed_boost": "Impulso: todos se mueven 50 % más rápido.",
+            "guardian_truce": "Tregua: los guardianes se detienen y no aturden.",
+        }
+        self._agregar_notificacion("event_start", mensajes[evento.tipo], "warning",
+                                   codigo=evento.id)
+
+    def _finalizar_evento(self, evento: Evento) -> None:
+        evento.estado = "ended"
+        evento.fin_real = self._tiempo_partida
+        if evento.tipo == "energy":
+            self._energia_items.pop(evento.id, None)
+        elif evento.tipo == "extra_guardians":
+            self._guardianes = [g for g in self._guardianes
+                                if g.id not in self._guardianes_extra_ids]
+            self._guardianes_extra_ids.clear()
+        self._agregar_notificacion("event_end", f"Terminó el evento {evento.tipo}.",
+                                   "info", codigo=evento.id)
+
+    def _transiciones_eventos(self) -> None:
+        if not self._iniciada or self._terminada:
+            return
+        for evento in self._eventos:
+            if evento.estado == "active" and evento.fin <= self._tiempo_partida + 1e-9:
+                self._finalizar_evento(evento)
+            elif evento.estado == "scheduled" and evento.inicio <= self._tiempo_partida + 1e-9:
+                self._iniciar_evento(evento)
+
+    def _cerrar_eventos(self) -> None:
+        for evento in self._eventos:
+            if evento.estado == "active":
+                self._finalizar_evento(evento)
+        self._operador_reactor = None
+        self._tiempo_reactor = 0.0
+
+    def _recoger_energia(self, nombre: str) -> None:
+        jugador = self._jugadores[nombre]
+        for evento in self._eventos:
+            zona = self._energia_items.get(evento.id)
+            if zona and zona.colisiona(jugador.x, jugador.y, self.TAMANO_JUGADOR):
+                jugador.puntos += self._reglas.puntos_energia_extra
+                self._agregar_notificacion(
+                    "energy_claimed",
+                    f"{nombre} obtuvo {self._reglas.puntos_energia_extra} puntos de energía extra.",
+                    "good", codigo=evento.id,
+                )
+                self._finalizar_evento(evento)
+                break
 
     def _activar_trampas(self, jugador: Jugador) -> None:
         ocupadas = {
@@ -471,6 +573,9 @@ class EstadoJuego:
                     return
                 self._puertas_abiertas[puerta.id] = not self._puertas_abiertas[puerta.id]
                 return
+            if self._evento_activo("overload"):
+                self._rechazar(nombre, "reactor_overload", "El reactor está sobrecargado.")
+                return
             if self._operador_reactor == nombre:
                 self._operador_reactor = None
             elif self._operador_reactor is not None:
@@ -528,85 +633,92 @@ class EstadoJuego:
         ):
             raise ValueError("delta_t debe ser un nÃºmero no negativo.")
 
-    # Simula el avance del juego durante un intervalo de tiempo delta_t, actualizando posiciones, proyectiles y el estado del reactor.
         with self._bloqueo:
             if not self._iniciada or self._terminada:
                 return self._crear_estado()
-            condicion = self._configuracion["condition"]
-            limite = self._configuracion["value"]
-            if condicion == "time" or self._prorrogas > 0:
-                delta_t = min(
-                    delta_t,
-                    max(0.0, self._limite_tiempo - self._tiempo_partida)
+            self._transiciones_eventos()
+            if delta_t == 0:
+                self._avanzar_segmento(0)
+                return self._crear_estado()
+            restante = delta_t
+            while restante > 1e-9 and not self._terminada:
+                proxima = min(
+                    (e.inicio if e.estado == "scheduled" else e.fin
+                     for e in self._eventos if e.estado in ("scheduled", "active")
+                     and (e.inicio if e.estado == "scheduled" else e.fin) > self._tiempo_partida + 1e-9),
+                    default=float("inf"),
                 )
-            elif self._operador_reactor is not None:
-                # Extracciones que faltan para que el operador llegue al objetivo.
-                restantes = limite - self._jugadores[self._operador_reactor].puntos
-                faltan = math.ceil(max(0, restantes) / self._reglas.puntos_por_energia)
-                delta_t = min(
-                    delta_t,
-                    max(0.0, faltan * self._reglas.intervalo_extraccion - self._tiempo_reactor),
-                )
-            self._tiempo_partida += delta_t
-            for nombre, (dx, dy) in self._entradas.items():
-                jugador = self._jugadores[nombre]
-                tiempo_bloqueado = min(delta_t, jugador.bloqueo_restante)
-                tiempo_lento = jugador.lentitud_restante
-                jugador.bloqueo_restante = max(0.0, jugador.bloqueo_restante - delta_t)
-                jugador.aturdimiento_restante = max(0.0, jugador.aturdimiento_restante - delta_t)               
-                jugador.lentitud_restante = max(0.0, jugador.lentitud_restante - delta_t)
-                if jugador.bloqueo_restante == 0:
-                    jugador.trampa_actual = None
-                if nombre != self._operador_reactor:
-                    intensidad = math.hypot(dx, dy) * (0.5 if tiempo_lento > 0 else 1.0)
-                    self._mover_girando(jugador, intensidad, delta_t - tiempo_bloqueado)
-                self._activar_trampas(jugador)
-            self._avanzar_guardianes(delta_t)
-            for jugador in self._jugadores.values():
-                jugador.tiempo_interaccion = max(0.0, jugador.tiempo_interaccion - delta_t)
-            if self._operador_reactor is not None:
-                self._tiempo_reactor += delta_t
-                intervalo = self._reglas.intervalo_extraccion
-                extracciones = math.floor((self._tiempo_reactor + 1e-9) / intervalo)
-                self._tiempo_reactor = max(0.0, self._tiempo_reactor - extracciones * intervalo)
-                # Unica fuente de puntos: extraer energia del reactor.
-                self._jugadores[self._operador_reactor].puntos += (
-                    extracciones * self._reglas.puntos_por_energia
-                )
-            self._proyectiles = [
-                p for p in self._proyectiles if self._mover_proyectil(p, delta_t)
-            ]
-            limite_alcanzado = (
-                self._tiempo_partida + 1e-9 >= self._limite_tiempo
-                if condicion == "time" or self._prorrogas > 0
-                else any(
-                    jugador.puntos >= limite
-                    for jugador in self._jugadores.values()
-                )
-            )
-
-            if limite_alcanzado:
-                rojo = self._jugadores["red"].puntos
-                azul = self._jugadores["blue"].puntos
-
-                if rojo > azul:
-                    self._ganador = "red"
-                    self._terminada = True
-                elif azul > rojo:
-                    self._ganador = "blue"
-                    self._terminada = True
-                else:
-                    self._iniciar_prorroga()
-
+                paso = min(restante, proxima - self._tiempo_partida)
+                anterior = self._tiempo_partida
+                self._avanzar_segmento(paso)
+                restante -= self._tiempo_partida - anterior
+                if self._tiempo_partida <= anterior + 1e-9:
+                    break
+                self._transiciones_eventos()
+                if self._prorrogas > 0:
+                    break
             return self._crear_estado()
 
-    def _mover_girando(self, jugador: Jugador, intensidad: float, delta_t: float) -> None:
+    def _avanzar_segmento(self, delta_t: float) -> None:
+        """Avanza hasta la siguiente transición, con reglas del servidor constantes."""
+        condicion = self._configuracion["condition"]
+        limite = self._configuracion["value"]
+        if condicion == "time" or self._prorrogas > 0:
+            delta_t = min(delta_t, max(0.0, self._limite_tiempo - self._tiempo_partida))
+        elif self._operador_reactor is not None:
+            restantes = limite - self._jugadores[self._operador_reactor].puntos
+            faltan = math.ceil(max(0, restantes) / self._reglas.puntos_por_energia)
+            delta_t = min(delta_t, max(0.0, faltan * self._reglas.intervalo_extraccion - self._tiempo_reactor))
+        self._tiempo_partida += delta_t
+        factor = 1.5 if self._evento_activo("speed_boost") else 1.0
+        for nombre, (dx, dy) in self._entradas.items():
+            jugador = self._jugadores[nombre]
+            tiempo_bloqueado = min(delta_t, jugador.bloqueo_restante)
+            tiempo_lento = jugador.lentitud_restante
+            jugador.bloqueo_restante = max(0.0, jugador.bloqueo_restante - delta_t)
+            jugador.aturdimiento_restante = max(0.0, jugador.aturdimiento_restante - delta_t)
+            jugador.lentitud_restante = max(0.0, jugador.lentitud_restante - delta_t)
+            if jugador.bloqueo_restante == 0:
+                jugador.trampa_actual = None
+            if nombre != self._operador_reactor:
+                intensidad = math.hypot(dx, dy) * (0.5 if tiempo_lento > 0 else 1.0)
+                self._mover_girando(jugador, intensidad, delta_t - tiempo_bloqueado, factor)
+            self._activar_trampas(jugador)
+            self._recoger_energia(nombre)
+        if not self._evento_activo("guardian_truce"):
+            self._avanzar_guardianes(delta_t)
+        for jugador in self._jugadores.values():
+            jugador.tiempo_interaccion = max(0.0, jugador.tiempo_interaccion - delta_t)
+        if self._operador_reactor is not None and not self._evento_activo("overload"):
+            self._tiempo_reactor += delta_t
+            intervalo = self._reglas.intervalo_extraccion
+            extracciones = math.floor((self._tiempo_reactor + 1e-9) / intervalo)
+            self._tiempo_reactor = max(0.0, self._tiempo_reactor - extracciones * intervalo)
+            self._jugadores[self._operador_reactor].puntos += extracciones * self._reglas.puntos_por_energia
+        self._proyectiles = [p for p in self._proyectiles if self._mover_proyectil(p, delta_t)]
+        limite_alcanzado = (
+            self._tiempo_partida + 1e-9 >= self._limite_tiempo
+            if condicion == "time" or self._prorrogas > 0
+            else any(j.puntos >= limite for j in self._jugadores.values())
+        )
+        if limite_alcanzado:
+            rojo = self._jugadores["red"].puntos
+            azul = self._jugadores["blue"].puntos
+            if rojo != azul:
+                self._ganador = "red" if rojo > azul else "blue"
+                self._terminada = True
+                self._cerrar_eventos()
+            else:
+                self._iniciar_prorroga()
+
+    def _mover_girando(self, jugador: Jugador, intensidad: float, delta_t: float,
+                      factor: float = 1.0) -> None:
         if not intensidad or not delta_t:
             return
         angulo = math.atan2(jugador.dir_y, jugador.dir_x)
         objetivo = math.atan2(jugador.mov_y, jugador.mov_x)
         diferencia = (objetivo - angulo + math.pi) % math.tau - math.pi
-        velocidad = self.VELOCIDAD * min(intensidad, 1.0)
+        velocidad = self.VELOCIDAD * min(intensidad, 1.0) * factor
         if abs(diferencia) < 1e-9:
             jugador.dir_x, jugador.dir_y = jugador.mov_x, jugador.mov_y
             self._mover_recto(jugador, velocidad * delta_t)
@@ -738,6 +850,10 @@ class EstadoJuego:
                 else:
                     jugador.x = obstaculo.x + obstaculo.ancho
         self._activar_trampas(jugador)
+        for nombre, candidato in self._jugadores.items():
+            if candidato is jugador:
+                self._recoger_energia(nombre)
+                break
 
     # Mueve al jugador en la direcciÃ³n y, manejando colisiones con los lÃ­mites del mapa y obstÃ¡culos sÃ³lidos.
     def _mover_y(self, jugador: Jugador, delta: float) -> None:
@@ -752,6 +868,10 @@ class EstadoJuego:
                 else:
                     jugador.y = obstaculo.y + obstaculo.alto
         self._activar_trampas(jugador)
+        for nombre, candidato in self._jugadores.items():
+            if candidato is jugador:
+                self._recoger_energia(nombre)
+                break
 
     # Detiene a los jugadores al perderse la conexiÃ³n del cliente, reiniciando sus entradas y contadores.
     def detener_movimiento(self) -> None:
@@ -819,9 +939,9 @@ class EstadoJuego:
                 "ring_radius": self.RADIO_REACTOR,
                 "operator": self._operador_reactor,
                 "status": (
-                    REACTOR_DISPONIBLE
-                    if self._operador_reactor is None
-                    else REACTOR_EN_USO
+                    REACTOR_SOBRECARGADO if self._evento_activo("overload") else (
+                        REACTOR_DISPONIBLE if self._operador_reactor is None else REACTOR_EN_USO
+                    )
                 ),
             },
             "projectiles": [{"x": p.x, "y": p.y} for p in self._proyectiles],
@@ -842,8 +962,19 @@ class EstadoJuego:
             ],
             "guardians": [
                 {"id": g.id, "x": g.x, "y": g.y, "size": TAMANO_GUARDIAN,
-                 "target": g.objetivo}
+                 "target": g.objetivo, "temporary": g.id in self._guardianes_extra_ids}
                 for g in self._guardianes
+            ],
+            "events": [
+                {"id": e.id, "type": e.tipo, "status": e.estado,
+                 "start": e.inicio, "duration": e.duracion,
+                 "remaining": max(0.0, e.fin - self._tiempo_partida) if e.estado == "active" else 0.0}
+                for e in self._eventos
+            ],
+            "energy_items": [
+                {"id": eid, "x": zona.x, "y": zona.y, "size": zona.ancho,
+                 "points": self._reglas.puntos_energia_extra}
+                for eid, zona in self._energia_items.items()
             ],
             "notifications": list(self._notificaciones),   # nuevo
         }

@@ -17,6 +17,7 @@ class Reglas:
     intervalo_extraccion: float
     duracion_aturdimiento: float = 2.0
     velocidad_guardian: float = 120.0
+    puntos_energia_extra: int = 3
 
 
 def validar_reglas(datos: Any) -> Reglas:
@@ -27,6 +28,7 @@ def validar_reglas(datos: Any) -> Reglas:
     intervalo = datos.get("intervalo_extraccion")
     aturdimiento = datos.get("duracion_aturdimiento", 2.0)
     velocidad_guardian = datos.get("velocidad_guardian", 120.0)
+    puntos_extra = datos.get("puntos_energia_extra", 3)
     if isinstance(puntos, bool) or not isinstance(puntos, int) or puntos < 1:
         raise ValueError("puntos_por_energia debe ser un entero mayor que cero.")
     if (
@@ -40,11 +42,14 @@ def validar_reglas(datos: Any) -> Reglas:
                           ("velocidad_guardian", velocidad_guardian)):
         if isinstance(valor, bool) or not isinstance(valor, (int, float)) or not math.isfinite(valor) or valor <= 0:
             raise ValueError(f"{nombre} debe ser un número finito mayor que cero.")
+    if isinstance(puntos_extra, bool) or not isinstance(puntos_extra, int) or puntos_extra <= 0:
+        raise ValueError("puntos_energia_extra debe ser un entero mayor que cero.")
     return Reglas(
         puntos_por_energia=puntos,
         intervalo_extraccion=float(intervalo),
         duracion_aturdimiento=float(aturdimiento),
         velocidad_guardian=float(velocidad_guardian),
+        puntos_energia_extra=puntos_extra,
     )
 
 

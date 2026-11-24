@@ -28,6 +28,8 @@ LETRAS_TRAMPA = {"jaula": "J", "arenas": "A", "inversion": "I"}
 COLOR_INTERACCION = (250, 220, 50)  # Color del círculo de interacción
 COLOR_PROYECTIL = (255, 240, 150)   # Color de los disparos
 COLOR_REACTOR = (250, 210, 40)      # Color del reactor y su anillo
+COLOR_SOBRECARGA = (255, 85, 85)
+COLOR_ENERGIA_EXTRA = (90, 255, 230)
 COLOR_CONGELADO = (170, 230, 255)   # Contorno de un jugador congelado en el reactor
 COLOR_TEXTO = (240, 240, 240)       # Color del texto en la ventana de juego
 COLOR_ERROR = (255, 150, 150)       # Color de los mensajes de error en la ventana de juego
@@ -59,6 +61,7 @@ class Juego:
         self._control: ControlSDL | None = None
         self._mensaje = f"Servidor: {host}:{port}"
         self._notificaciones = NotificacionesHUD()
+        self._ultimo_id_notificacion = 0
 
         self._avatares = RepositorioAvatares().obtener()
         self._renderizador_avatares = RenderizadorAvatares()
@@ -152,6 +155,15 @@ class Juego:
                 if respuesta is not None:
                     if respuesta.get("type") == "state":
                         self._estado = respuesta
+                        for aviso in respuesta.get("notifications", []):
+                            if aviso["id"] > self._ultimo_id_notificacion:
+                                color = {"good": (120, 230, 140), "warning": (255, 200, 90),
+                                         "danger": (255, 110, 110)}.get(aviso.get("severity"), COLOR_TEXTO)
+                                self._notificaciones.agregar(aviso["message"], color)
+                        self._ultimo_id_notificacion = max(
+                            [self._ultimo_id_notificacion] +
+                            [aviso["id"] for aviso in respuesta.get("notifications", [])]
+                        )
                         if respuesta.get("match", {}).get("finished"):
                             self._registrar_resultado()
 
@@ -231,6 +243,9 @@ class Juego:
 
         operador = reactor.get("operator")
 
+        if reactor.get("status") == "overload":
+            return "SOBRECARGADO: sin extracción", COLOR_SOBRECARGA
+
         if operador is None:
             return "Sin operador", (120, 220, 150)
 
@@ -279,6 +294,19 @@ class Juego:
             tamano = guardian.get("size", 40)
             centro = (guardian["x"] + tamano / 2, guardian["y"] + tamano / 2)
             dibujar_guardian(pantalla, centro, tamano)
+            if guardian.get("temporary"):
+                pygame.draw.circle(pantalla, COLOR_ENERGIA_EXTRA,
+                                   (int(centro[0]), int(centro[1])), int(tamano * 0.7), 2)
+
+        for item in self._estado.get("energy_items", []):
+            cx = int(item["x"] + item["size"] / 2)
+            cy = int(item["y"] + item["size"] / 2)
+            r = int(item["size"] / 2)
+            pygame.draw.polygon(pantalla, COLOR_ENERGIA_EXTRA,
+                                [(cx, cy-r), (cx+r, cy), (cx, cy+r), (cx-r, cy)])
+            pygame.draw.polygon(pantalla, (20, 65, 75),
+                                [(cx+2, cy-r+5), (cx-5, cy+1), (cx+1, cy+1),
+                                 (cx-2, cy+r-5), (cx+7, cy-2), (cx+1, cy-2)])
 
         colores = {"red": COLOR_ROJO, "blue": COLOR_AZUL}
         reactor = self._estado.get("reactor")
@@ -286,11 +314,12 @@ class Juego:
             tamano = reactor["size"]
             rect_reactor = pygame.Rect(int(reactor["x"]), int(reactor["y"]), tamano, tamano)
             # El anillo toma el color del jugador que lo está operando.
-            color_anillo = colores.get(reactor.get("operator"), COLOR_REACTOR)
+            color_anillo = (COLOR_SOBRECARGA if reactor.get("status") == "overload"
+                            else colores.get(reactor.get("operator"), COLOR_REACTOR))
             pygame.draw.circle(
                 pantalla, color_anillo, rect_reactor.center, int(reactor["ring_radius"]), 2
             )
-            pygame.draw.rect(pantalla, COLOR_REACTOR, rect_reactor)
+            pygame.draw.rect(pantalla, color_anillo, rect_reactor)
 
         jugadores = self._estado.get("players", {})
         for nombre, color in colores.items():
@@ -374,6 +403,17 @@ class Juego:
             indicador_reactor,
             (ANCHO // 2 - indicador_reactor.get_width() // 2, 75),
         )
+
+        etiquetas = {"energy": "Energía extra", "extra_guardians": "+5 guardianes",
+                     "overload": "Sobrecarga", "speed_boost": "Impulso +50 %",
+                     "guardian_truce": "Tregua de guardianes"}
+        for indice, evento in enumerate(e for e in self._estado.get("events", [])
+                                        if e.get("status") == "active"):
+            aviso = fuente.render(
+                f"{etiquetas.get(evento['type'], evento['type'])} ({evento['remaining']:.1f}s)",
+                True, COLOR_SOBRECARGA if evento["type"] == "overload" else COLOR_ENERGIA_EXTRA,
+            )
+            pantalla.blit(aviso, (ANCHO - aviso.get_width() - 20, 15 + indice * 30))
 
         partida = self._estado.get("match")
 

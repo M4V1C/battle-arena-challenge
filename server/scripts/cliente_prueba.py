@@ -91,8 +91,16 @@ def dibujar(pygame, pantalla, fuente, estado: dict, puesto: str, avisos: list) -
     operador = reactor["operator"]
     detalle = f" por {jugadores[operador]['username']}" if operador else ""
     texto = f"Reactor: {ESTADO_REACTOR.get(reactor['status'], reactor['status'])}{detalle}"
-    pantalla.blit(fuente.render(texto, True, (250, 210, 40)), (10, 34))
+    pantalla.blit(fuente.render(texto, True, (255, 85, 85) if reactor["status"] == "overload"
+                              else (250, 210, 40)), (10, 34))
     pantalla.blit(fuente.render(linea_de_estado(estado), True, (240, 240, 240)), (10, 60))
+    etiquetas = {"energy": "Energía extra", "extra_guardians": "+5 guardianes",
+                 "overload": "Sobrecarga", "speed_boost": "Impulso +50 %",
+                 "guardian_truce": "Tregua de guardianes"}
+    activos = [e for e in estado.get("events", []) if e.get("status") == "active"]
+    for i, evento in enumerate(activos):
+        aviso = f"{etiquetas.get(evento['type'], evento['type'])}: {evento['remaining']:.1f}s"
+        pantalla.blit(fuente.render(aviso, True, (90, 255, 230)), (550, 34 + 25 * i))
 
     for o in estado["obstacles"]:
         pygame.draw.rect(pantalla, (110, 110, 125),
@@ -117,16 +125,27 @@ def dibujar(pygame, pantalla, fuente, estado: dict, puesto: str, avisos: list) -
         frente = pygame.Rect(cx - lado // 2, cy - lado // 2, lado, lado)
         pygame.draw.rect(pantalla, (115, 65, 175), frente)
         pygame.draw.rect(pantalla, (235, 190, 90), frente, 2)
+        if guardian.get("temporary"):
+            pygame.draw.circle(pantalla, (90, 255, 230), (cx, cy), lado, 2)
         for signo in (-1, 1):
             codo_x = cx + signo * (lado // 2 + 7)
             pygame.draw.lines(pantalla, (235, 190, 90), False,
                               [(cx + signo * lado // 2, cy - 3),
                                (codo_x, cy - 3), (codo_x, cy + 6)], 2)
             pygame.draw.circle(pantalla, (245, 215, 120), (codo_x, cy + 9), 4)
+    for item in estado.get("energy_items", []):
+        cx = px(item["x"] + item["size"] / 2)
+        cy = BARRA + px(item["y"] + item["size"] / 2)
+        r = max(8, px(item["size"] / 2))
+        pygame.draw.polygon(pantalla, (90, 255, 230),
+                            [(cx, cy-r), (cx+r, cy), (cx, cy+r), (cx-r, cy)])
+        marca = fuente.render(f"+{item['points']}", True, (20, 65, 75))
+        pantalla.blit(marca, marca.get_rect(center=(cx, cy)))
     centro = (px(reactor["x"] + reactor["size"] / 2), BARRA + px(reactor["y"] + reactor["size"] / 2))
-    color_anillo = COLORES.get(operador, (250, 210, 40))
+    color_anillo = ((255, 85, 85) if reactor["status"] == "overload"
+                    else COLORES.get(operador, (250, 210, 40)))
     pygame.draw.circle(pantalla, color_anillo, centro, px(reactor["ring_radius"]), 2)
-    pygame.draw.rect(pantalla, (250, 210, 40),
+    pygame.draw.rect(pantalla, color_anillo,
                      (px(reactor["x"]), BARRA + px(reactor["y"]), px(reactor["size"]), px(reactor["size"])))
     for p in estado["projectiles"]:
         pygame.draw.circle(pantalla, (255, 240, 150), (px(p["x"]), BARRA + px(p["y"])), 4)
