@@ -189,31 +189,35 @@ class EstadoJuego:
             self._aplicar_escenario(cargar_escenario("arena_clasica"))
         self._reiniciar_estado()
 
-    def _aplicar_escenario(self, datos: dict[str, Any]) -> None:
-        self._escenario_id = datos["id"]
-        self._escenario_nombre = datos["name"]
-        self._tema = datos["theme"]
-        self.ANCHO, self.ALTO = datos["width"], datos["height"]
-        self._zonas_transitables = tuple(
-            Obstaculo(z["x"], z["y"], z["width"], z["height"])
-            for z in datos["walkable"]
-        )
-        self._posiciones_iniciales = {
-            nombre: (zona["x"], zona["y"]) for nombre, zona in datos["spawns"].items()
-        }
-        self._obstaculos = tuple(Obstaculo(z["x"], z["y"], z["width"], z["height"])
-                                 for z in datos["obstacles"])
-        self._puertas = tuple(Puerta(z["id"], Obstaculo(z["x"], z["y"], z["width"], z["height"]))
-                              for z in datos["doors"])
-        self._reactor = Obstaculo(datos["reactor"]["x"], datos["reactor"]["y"],
-                                  self.TAMANO_JUGADOR, self.TAMANO_JUGADOR)
+    def _aplicar_escenario(self, datos: Any) -> None:
+        self._escenario_id = datos.id
+        self._escenario_nombre = datos.nombre
+        self._tema = dict(datos.tema) if datos.tema else self._tema
+        self.ANCHO, self.ALTO = datos.ancho, datos.alto
+        self._zonas_transitables = tuple(Obstaculo(*zona) for zona in datos.zonas_transitables)
+        self._posiciones_iniciales = dict(datos.posiciones)
+        self._obstaculos = tuple(Obstaculo(*zona) for zona in datos.obstaculos)
+        self._puertas = tuple(Puerta(identificador, Obstaculo(*zona))
+                              for identificador, zona in datos.puertas)
+        self._reactor = Obstaculo(*datos.reactor)
         self._solidos = self._obstaculos + (self._reactor,)
         self._trampas_fijas = None
-        self._tipos_trampa = tuple((t["type"], t["duration"]) for t in datos["traps"])
+        self._tipos_trampa = datos.trampas or TIPOS_TRAMPA
         self._guardianes_configurados = tuple(
-            Guardian(g["id"], g["x"], g["y"]) for g in datos["guardians"]
-        )
+            Guardian(identificador, x, y) for identificador, x, y in datos.guardianes
+        ) or tuple(guardianes_iniciales(self.ANCHO, self.ALTO))
         self._eventos_habilitados = self._eventos_forzados is not False
+
+    def _seleccionar_escenario(self, escenario: str) -> None:
+        if self._iniciada and not self._terminada:
+            raise Rechazo("match_in_progress", "No se puede cambiar el escenario durante la partida.")
+        try:
+            datos = cargar_escenario(escenario)
+        except (ValueError, OSError) as error:
+            raise Rechazo("invalid_scenario", f"No se pudo cargar el escenario: {error}") from error
+        if datos.ancho != 1600 or datos.alto != 900:
+            raise Rechazo("invalid_scenario", "Las dimensiones del escenario no son compatibles.")
+        self._aplicar_escenario(datos)
 
     def _es_transitable(self, x: float, y: float, tamano: float) -> bool:
         return any(z.x <= x and z.y <= y and
@@ -236,8 +240,7 @@ class EstadoJuego:
         if escenario is not None:
             if self._iniciada and not self._terminada and escenario != self._escenario_id:
                 raise Rechazo("match_in_progress", "No se puede cambiar el escenario durante la partida.")
-            datos = cargar_escenario(escenario)
-            self._aplicar_escenario(datos)
+            self._seleccionar_escenario(escenario)
         self._configuracion = configuracion
         self._reiniciar_estado()
         self._id_partida = uuid.uuid4().hex
@@ -675,6 +678,7 @@ class EstadoJuego:
             self._rechazar(nombre, "player_trapped", "No puedes actuar mientras estás atrapado.")
             return
         if accion == "interact":
+            jugador.tiempo_interaccion = self.DURACION_INTERACCION
             puerta = self._puerta_cercana(jugador)
             if puerta is not None:
                 if self._puertas_abiertas[puerta.id] and any(
@@ -1023,8 +1027,22 @@ class EstadoJuego:
                 ],
             },
             "match": {
+                "match_id": self._id_partida,
                 "started": self._iniciada,        # nuevo
                 "finished": self._terminada,
+                "game_over": {
+                    "match_id": self._id_partida,
+                    "winner": self._ganador,
+                    "players": {
+                        nombre: {
+                            "username": self._puestos[nombre],
+                            "score": jugador.puntos,
+                        }
+                        for nombre, jugador in self._jugadores.items()
+                    },
+                    "elapsed": self._tiempo_partida,
+                    "overtime": self._prorrogas,
+                } if self._terminada else None,
                 "elapsed": self._tiempo_partida,
                 "condition": self._configuracion["condition"],
                 "value": self._configuracion["value"],

@@ -183,6 +183,67 @@ def calcular_ranking(usuarios, nombre_usuario, tamano_top=5):
 # PERFIL COMPLETO (lo que muestra la pantalla de perfil)
 # ---------------------------------------------------------------------
 def obtener_perfil(nombre_usuario):
+    try:
+        from api_servidor import historial, perfil, ranking
+        remoto = perfil(nombre_usuario)
+        datos_ranking = ranking()["ranking"]
+        mi_fila = next((fila for fila in datos_ranking if fila["usuario"] == nombre_usuario), None)
+        top = [
+            {
+                "posicion": fila["posicion"],
+                "usuario": fila["usuario"],
+                "puntaje": fila["puntaje_total"],
+            }
+            for fila in datos_ranking[:5]
+        ]
+        ranking_perfil = {
+            "posicion": mi_fila["posicion"] if mi_fila else None,
+            "total": len(datos_ranking),
+            "mi_puntaje": mi_fila["puntaje_total"] if mi_fila else 0,
+            "top": top,
+        }
+        datos_historial = historial(nombre_usuario)["historial"]
+        historial_normalizado = []
+        for partida in datos_historial:
+            historial_normalizado.append({
+                "fecha": partida["match_id"],
+                "resultado": partida["resultado"],
+                "puntaje": partida["score"],
+                "duracion_seg": int(partida["elapsed"]),
+            })
+        est = dict(remoto.get("estadisticas", {}))
+        partidas = int(est.get("partidas_jugadas", 0))
+        victorias = int(est.get("victorias", 0))
+        puntaje = int(est.get("puntaje_total", 0))
+        tiempo = int(est.get("tiempo_total_seg", 0))
+        est["porcentaje_victorias"] = victorias * 100 / partidas if partidas else 0
+        est["puntaje_promedio"] = puntaje / partidas if partidas else 0
+        est["duracion_promedio_seg"] = tiempo / partidas if partidas else 0
+        desbloqueados = set(remoto.get("logros", []))
+        desbloqueados.update(evaluar_logros(est, desbloqueados))
+        logros = [
+            {
+                "nombre": logro["nombre"],
+                "descripcion": logro["descripcion"],
+                "desbloqueado": logro["id"] in desbloqueados,
+            }
+            for logro in CATALOGO_LOGROS
+        ]
+        return {
+            **remoto,
+            "correo": remoto.get("correo", ""),
+            "correo_verificado": remoto.get("correo_verificado", False),
+            "avatar": remoto.get("avatar", "default"),
+            "fecha_registro": remoto.get("fecha_registro", "Desconocida"),
+            "nivel": 1 + puntaje // PUNTOS_POR_NIVEL,
+            "estadisticas": est,
+            "logros": logros,
+            "ranking": ranking_perfil,
+            "historial": historial_normalizado,
+        }
+    except (ImportError, ValueError):
+        pass
+
     """
     Lee usuarios.json y devuelve un diccionario con TODO lo que necesita la
     pantalla de perfil, o None si la cuenta no existe.

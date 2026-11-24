@@ -1,34 +1,131 @@
 {
   "id": "arena_clasica",
-  "name": "Arena clásica",
-  "width": 1600,
-  "height": 900,
-  "walkable": [{"x": 0, "y": 0, "width": 1600, "height": 900}],
-  "spawns": {"red": {"x": 100, "y": 100}, "blue": {"x": 1460, "y": 760}},
-  "reactor": {"x": 780, "y": 430, "size": 40},
-  "obstacles": [
-    {"x": 300, "y": 250, "width": 200, "height": 40},
-    {"x": 900, "y": 150, "width": 40, "height": 300},
-    {"x": 1200, "y": 500, "width": 250, "height": 40},
-    {"x": 400, "y": 600, "width": 40, "height": 200}
+  "nombre": "Arena clásica",
+  "limites": {
+    "ancho": 1600,
+    "alto": 900
+  },
+  "posiciones_iniciales": {
+    "red": {
+      "x": 100,
+      "y": 100
+    },
+    "blue": {
+      "x": 1460,
+      "y": 760
+    }
+  },
+  "reactor": {
+    "x": 780,
+    "y": 430,
+    "ancho": 40,
+    "alto": 40
+  },
+  "obstaculos": [
+    {
+      "x": 300,
+      "y": 250,
+      "ancho": 200,
+      "alto": 40
+    },
+    {
+      "x": 900,
+      "y": 150,
+      "ancho": 40,
+      "alto": 300
+    },
+    {
+      "x": 1200,
+      "y": 500,
+      "ancho": 250,
+      "alto": 40
+    },
+    {
+      "x": 400,
+      "y": 600,
+      "ancho": 40,
+      "alto": 200
+    }
   ],
-  "doors": [{"id": "puerta_central", "x": 600, "y": 400, "width": 40, "height": 120}],
-  "guardians": [
-    {"id": "noroeste", "x": 20, "y": 20},
-    {"id": "noreste", "x": 1540, "y": 20},
-    {"id": "suroeste", "x": 20, "y": 840},
-    {"id": "sureste", "x": 1540, "y": 840}
+  "puertas": [
+    {
+      "id": "puerta_central",
+      "x": 600,
+      "y": 400,
+      "ancho": 40,
+      "alto": 120
+    }
   ],
-  "traps": [
-    {"type": "jaula", "duration": 2.5},
-    {"type": "arenas", "duration": 1.75},
-    {"type": "inversion", "duration": 1.25}
+  "zonas_trampas": [],
+  "zonas_transitables": [
+    {
+      "x": 0,
+      "y": 0,
+      "ancho": 1600,
+      "alto": 900
+    }
   ],
-  "theme": {
-    "background": [30, 30, 40],
-    "obstacle": [110, 110, 125],
-    "door_closed": [230, 145, 65],
-    "door_open": [90, 215, 130],
-    "reactor": [250, 210, 40]
+  "guardianes": [
+    {
+      "id": "noroeste",
+      "x": 20,
+      "y": 20
+    },
+    {
+      "id": "noreste",
+      "x": 1540,
+      "y": 20
+    },
+    {
+      "id": "suroeste",
+      "x": 20,
+      "y": 840
+    },
+    {
+      "id": "sureste",
+      "x": 1540,
+      "y": 840
+    }
+  ],
+  "trampas": [
+    {
+      "tipo": "jaula",
+      "duracion": 2.5
+    },
+    {
+      "tipo": "arenas",
+      "duracion": 1.75
+    },
+    {
+      "tipo": "inversion",
+      "duracion": 1.25
+    }
+  ],
+  "tema": {
+    "background": [
+      30,
+      30,
+      40
+    ],
+    "obstacle": [
+      110,
+      110,
+      125
+    ],
+    "door_closed": [
+      230,
+      145,
+      65
+    ],
+    "door_open": [
+      90,
+      215,
+      130
+    ],
+    "reactor": [
+      250,
+      210,
+      40
+    ]
   }
 }

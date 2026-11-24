@@ -1,14 +1,12 @@
 """Cierre único, prórroga y persistencia del resultado."""
 
 import json
-import sys
 from concurrent.futures import ThreadPoolExecutor
-from types import SimpleNamespace
-from unittest.mock import Mock, call
 
 from app.game_state import EstadoJuego
-from app.resultados import _actualizar_perfiles, guardar_resultado
+from app.resultados_store import AlmacenResultados
 from app.socket_server import SesionCliente, procesar_mensaje
+from app.socket_server import guardar_resultado_final
 
 
 def juego_con_guardado(guardados):
@@ -75,11 +73,9 @@ def test_empate_conserva_puntos_y_suma_dos_minutos_antes_de_guardar():
 
 def test_resultado_persiste_tras_salir_ambos_clientes(tmp_path):
     ruta = tmp_path / "resultados.json"
-    guardados_perfil = []
-    def guardar(datos):
-        return guardar_resultado(datos, ruta, guardados_perfil.append)
+    almacen = AlmacenResultados(ruta)
     juego = EstadoJuego(obstaculos=(), guardianes=(), eventos=False,
-                       guardar_resultado=guardar)
+                       guardar_resultado=lambda datos: guardar_resultado_final(almacen, datos))
     juego.unir_jugador("ana")
     juego.unir_jugador("beto")
     juego.iniciar_partida({"condition": "points", "value": 1})
@@ -89,11 +85,9 @@ def test_resultado_persiste_tras_salir_ambos_clientes(tmp_path):
     juego.liberar_puesto("blue")
     with ruta.open(encoding="utf-8") as archivo:
         persistidos = json.load(archivo)
-    assert len(persistidos) == 1
-    assert persistidos[0] == final["match"]["result"]
-    assert len(guardados_perfil) == 1
-    assert not guardar_resultado(persistidos[0], ruta, guardados_perfil.append)
-    assert len(guardados_perfil) == 1
+    assert len(persistidos["partidas"]) == 1
+    assert persistidos["partidas"][0]["match_id"] == final["match"]["match_id"]
+    assert AlmacenResultados(ruta).historial("ana")[0]["resultado"] == "victoria"
 
 
 def test_evento_de_energia_puede_cerrar_partida_y_no_reaparece():
@@ -142,13 +136,13 @@ def test_tics_simultaneos_no_guardan_ni_emiten_dos_veces():
     assert len([n for n in juego.estado()["notifications"] if n["kind"] == "game_over"]) == 1
 
 
-def test_el_servidor_actualiza_ambos_perfiles_con_el_resultado_final(monkeypatch):
-    registrar = Mock()
-    monkeypatch.setitem(sys.modules, "perfil_datos", SimpleNamespace(registrar_partida=registrar))
-    _actualizar_perfiles({"winner": "red", "elapsed": 12.8,
-                         "players": {"red": {"username": "ana", "score": 7},
-                                     "blue": {"username": "beto", "score": 4}}})
-    assert registrar.call_args_list == [
-        call("ana", "victoria", 7, 12),
-        call("beto", "derrota", 4, 12),
-    ]
+def test_el_servidor_actualiza_ambos_historiales_con_el_resultado_final(tmp_path):
+    almacen = AlmacenResultados(tmp_path / "resultados.json")
+    assert guardar_resultado_final(almacen, {
+        "id": "partida-1", "winner": "red", "elapsed": 12.8,
+        "overtime": 0, "condition": "points", "value": 10,
+        "players": {"red": {"username": "ana", "score": 7},
+                    "blue": {"username": "beto", "score": 4}},
+    })
+    assert almacen.historial("ana")[0]["resultado"] == "victoria"
+    assert almacen.historial("beto")[0]["resultado"] == "derrota"
