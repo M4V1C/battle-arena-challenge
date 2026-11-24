@@ -1,8 +1,10 @@
+import logging
 import os
 import threading
 from contextlib import asynccontextmanager
 
 from pathlib import Path
+from urllib.parse import urlencode
 
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import RedirectResponse
@@ -10,10 +12,12 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from app.socket_server import HOST, PORT, crear_socket_servidor, guardar_resultado_final, servir
-from app.auth_store import AlmacenCuentas
+from app.auth_store import AlmacenCuentas, CorreoNoVerificado
 from app.game_state import EstadoJuego
 from app.resultados_store import AlmacenResultados
 from app.social_store import AlmacenLoginSocial
+
+bitacora = logging.getLogger("battle_arena.api")
 
 # Context manager para el ciclo de vida del servidor de sockets
 @asynccontextmanager
@@ -199,13 +203,26 @@ def iniciar_google(datos: dict):
     }
 
 
+MENSAJE_GOOGLE_CANCELADO = "Se canceló el inicio de sesión con Google."
+MENSAJE_GOOGLE_FALLO = "No se pudo completar el inicio de sesión con Google. Inténtalo de nuevo."
+
+
+def volver_a_la_web(**parametros: str) -> RedirectResponse:
+    return RedirectResponse(url="/webapp/?" + urlencode(parametros), status_code=303)
+
+
 @app.get("/auth/social/google/callback")
-def google_callback(code: str, state: str):
+def google_callback(state: str = "", code: str = "", error: str = ""):
     import json
     import os
     import urllib.parse
     import urllib.request
-    import urllib.error
+
+    if not code:
+        # Google vuelve sin código si el usuario cancela (error=access_denied) o si falla.
+        cancelado = error in ("", "access_denied")
+        social.fallar_google(state, MENSAJE_GOOGLE_CANCELADO if cancelado else MENSAJE_GOOGLE_FALLO)
+        return volver_a_la_web(google_error="cancelado" if cancelado else "fallo")
 
     client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
     client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "")
@@ -214,7 +231,8 @@ def google_callback(code: str, state: str):
         "http://127.0.0.1:8000/auth/social/google/callback",
     )
     if not client_id or not client_secret:
-        raise HTTPException(status_code=503, detail="Google OAuth no está configurado.")
+        social.fallar_google(state, MENSAJE_GOOGLE_FALLO)
+        return volver_a_la_web(google_error="fallo")
 
     try:
         body = urllib.parse.urlencode({
@@ -236,16 +254,22 @@ def google_callback(code: str, state: str):
         with urllib.request.urlopen(peticion, timeout=10) as respuesta:
             perfil = json.loads(respuesta.read().decode("utf-8"))
 
-        login = social.completar_google(
+        social.completar_google(
             state,
             google_subject=str(perfil["sub"]),
             correo=str(perfil.get("email", "")),
             nombre=perfil.get("name"),
+            correo_verificado=perfil.get("email_verified") in (True, "true"),
         )
-    except (urllib.error.URLError, urllib.error.HTTPError, KeyError, ValueError) as error:
-        raise HTTPException(status_code=400, detail=f"No se pudo completar Google login: {error}") from error
+    except CorreoNoVerificado:
+        return volver_a_la_web(google_error="correo_no_verificado")
+    except (OSError, KeyError, TypeError, ValueError) as fallo:
+        # El detalle queda solo en el registro del servidor; al usuario se le da un mensaje genérico.
+        bitacora.warning("Fallo el inicio de sesión con Google: %s: %s", type(fallo).__name__, fallo)
+        social.fallar_google(state, MENSAJE_GOOGLE_FALLO)
+        return volver_a_la_web(google_error="fallo")
 
-    return RedirectResponse(url=f"/webapp/?google_state={state}", status_code=303)
+    return volver_a_la_web(google_state=state)
 
 
 @app.get("/auth/social/google/status")

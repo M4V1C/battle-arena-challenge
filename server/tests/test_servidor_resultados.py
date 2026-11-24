@@ -108,11 +108,13 @@ def test_login_social_google_vincula_o_crea_cuenta(tmp_path):
         google_subject="google-123",
         correo="persona@example.com",
         nombre="Persona Uno",
+        correo_verificado=True,
     )
     login_vinculado = cuentas.login_social_google(
         google_subject="google-123",
         correo="persona@example.com",
         nombre="Persona Uno",
+        correo_verificado=True,
     )
 
     assert login_nuevo["usuario"]

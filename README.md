@@ -194,6 +194,8 @@ Detener con `Ctrl+C`. No ejecutar a la vez este servidor y el contenedor de la A
 
 Las rutas privadas exigen la cabecera `Authorization: Bearer <token>`: sin token o con un token inválido responden `401`, y con el token de otra cuenta, `403`. Los resultados solo los escribe el servidor de juego al terminar cada partida.
 
+El callback de Google siempre vuelve a la webapp: si el usuario cancela o el proveedor falla, con `?google_error=cancelado|correo_no_verificado|fallo` y un mensaje claro, sin el detalle del error. `GET /auth/social/google/status` entrega el token una sola vez.
+
 La webapp se abre en `http://localhost:8000/webapp/`. Desde un móvil en la misma red, usar la IP del equipo servidor, por ejemplo `http://192.168.1.25:8000/webapp/`.
 
 ## Pruebas y CI

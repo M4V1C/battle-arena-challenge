@@ -1,29 +1,14 @@
 """Comportamiento de la webapp ante errores de red y de respuesta (se ejecuta app.js con Node)."""
 
-import json
-import shutil
-import subprocess
-from pathlib import Path
-
 import pytest
 
-import app.main as main
+from tests.helpers import NODE, abrir_webapp
 
-NODE = shutil.which("node")
-ARNES = Path(__file__).with_name("webapp_harness.js")
 SIN_CONEXION = "No se pudo conectar con el servidor. Revisa la conexion e intenta de nuevo."
 DATOS_INVALIDOS = "El servidor respondio con datos no validos. Intenta de nuevo mas tarde."
 SESION_EXPIRADA = "Tu sesion expiro. Inicia sesion de nuevo."
 
 pytestmark = pytest.mark.skipif(NODE is None, reason="Node.js no esta instalado")
-
-
-def abrir_webapp(escenario):
-    salida = subprocess.run(
-        [NODE, str(ARNES), str(main.WEB_DIR / "app.js"), str(main.WEB_DIR / "index.html"), escenario],
-        capture_output=True, text=True, encoding="utf-8", timeout=30, check=True,
-    )
-    return json.loads(salida.stdout)
 
 
 def test_con_respuestas_correctas_muestra_los_datos_sin_error():

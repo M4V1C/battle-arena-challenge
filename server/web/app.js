@@ -8,6 +8,11 @@ const datosMensaje = document.querySelector("#datosMensaje");
 const SIN_CONEXION = "No se pudo conectar con el servidor. Revisa la conexion e intenta de nuevo.";
 const DATOS_INVALIDOS = "El servidor respondio con datos no validos. Intenta de nuevo mas tarde.";
 const SESION_EXPIRADA = "Tu sesion expiro. Inicia sesion de nuevo.";
+const ERRORES_GOOGLE = {
+  cancelado: "Se cancelo el inicio de sesion con Google.",
+  correo_no_verificado: "Google no confirmo que tu correo este verificado.",
+  fallo: "No se pudo completar el inicio de sesion con Google. Intentalo de nuevo.",
+};
 
 let usuarioActual = null;
 let sondeoPartida = null;
@@ -238,6 +243,8 @@ document.querySelector("#googleLogin").addEventListener("click", async () => {
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({redirect_uri: `${location.origin}/auth/social/google/callback`}),
     });
+    // Solo este navegador consumira el token de este flujo (no el de uno iniciado desde el juego).
+    sessionStorage.setItem("google_state", inicio.state);
     location.href = inicio.authorization_url;
   } catch (error) {
     loginMensaje.textContent = error.message;
@@ -246,23 +253,34 @@ document.querySelector("#googleLogin").addEventListener("click", async () => {
 
 async function revisarLoginGoogle() {
   const parametros = new URLSearchParams(location.search);
+  const error = parametros.get("google_error");
   const state = parametros.get("google_state");
-  if (!state) return;
+  if (!error && !state) return;
+  history.replaceState({}, "", location.pathname);
+  const propio = state && state === sessionStorage.getItem("google_state");
+  sessionStorage.removeItem("google_state");
+  if (error) {
+    loginMensaje.textContent = ERRORES_GOOGLE[error] || ERRORES_GOOGLE.fallo;
+    return;
+  }
+  if (!propio) {
+    loginMensaje.textContent = "Inicio con Google completado. Vuelve al juego para continuar.";
+    return;
+  }
 
   for (let intento = 0; intento < 40; intento++) {
     try {
       const estado = await solicitar(`/auth/social/google/status?state=${encodeURIComponent(state)}`);
       if (estado.estado === "completado") {
-        const resultado = estado.resultado;
-        localStorage.setItem("token", resultado.token);
-        history.replaceState({}, "", location.pathname);
-        mostrarDashboard(resultado.usuario);
+        localStorage.setItem("token", estado.resultado.token);
+        mostrarDashboard(estado.resultado.usuario);
         return;
       }
-      if (estado.estado === "expirado") break;
+      if (estado.estado !== "pendiente") break;
     } catch (_) {}
     await new Promise(resolve => setTimeout(resolve, 500));
   }
+  loginMensaje.textContent = ERRORES_GOOGLE.fallo;
 }
 
 // La sesión solo se restaura si el servidor confirma el token guardado.

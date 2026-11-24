@@ -47,12 +47,28 @@ const document = {
   createElement: etiqueta => new Elemento(etiqueta),
 };
 
-const almacen = new Map([["token", "token-valido"]]);
+const almacen = new Map(escenario.startsWith("google_") ? [] : [["token", "token-valido"]]);
 const localStorage = {
   getItem: clave => (almacen.has(clave) ? almacen.get(clave) : null),
   setItem: (clave, valor) => almacen.set(clave, String(valor)),
   removeItem: clave => almacen.delete(clave),
 };
+// Flujos de Google: "propio" es el que se inicio desde este navegador.
+const sesion = new Map(["google_propio", "google_entregado"].includes(escenario)
+  ? [["google_state", "S1"]] : []);
+const sessionStorage = {
+  getItem: clave => (sesion.has(clave) ? sesion.get(clave) : null),
+  setItem: (clave, valor) => sesion.set(clave, String(valor)),
+  removeItem: clave => sesion.delete(clave),
+};
+const BUSQUEDAS = {
+  google_cancelado: "?google_error=cancelado",
+  google_ajeno: "?google_state=S1",
+  google_propio: "?google_state=S1",
+  google_entregado: "?google_state=S1",
+};
+let consultasGoogle = 0;
+let urlLimpia = false;
 
 const JUGADOR_LIBRE = {usuario: null, puntaje: 0, conectado: false, estado: "normal"};
 const DATOS = {
@@ -87,6 +103,12 @@ function respuesta(estado, cuerpo) {
 }
 
 async function fetch(ruta) {
+  if (ruta.startsWith("/auth/social/google/status")) {
+    consultasGoogle++;
+    return respuesta(200, escenario === "google_propio"
+      ? {estado: "completado", resultado: {token: "token-google", usuario: "ana"}}
+      : {estado: "entregado"});
+  }
   if (ruta === "/auth/validate") {
     if (escenario === "validar_sin_red") throw new TypeError("Failed to fetch");
     if (escenario === "validar_401") return respuesta(401, {detail: "Sesión inválida."});
@@ -104,9 +126,9 @@ async function fetch(ruta) {
 }
 
 const contexto = vm.createContext({
-  document, localStorage, fetch, URLSearchParams, console,
-  location: {search: "", origin: "http://servidor", pathname: "/webapp/", href: ""},
-  history: {replaceState() {}},
+  document, localStorage, sessionStorage, fetch, URLSearchParams, console,
+  location: {search: BUSQUEDAS[escenario] || "", origin: "http://servidor", pathname: "/webapp/", href: ""},
+  history: {replaceState() { urlLimpia = true; }},
   setTimeout, clearTimeout,
   setInterval: () => 1,
   clearInterval: () => {},
@@ -123,5 +145,8 @@ setTimeout(() => {
     datosMensajeVisible: !elemento("#datosMensaje").clases.has("oculto"),
     partidas: String(elemento("#partidas").textContent),
     historial: elemento("#historialBody").hijos.map(fila => fila.hijos.map(celda => celda.textContent)),
+    consultasGoogle,
+    urlLimpia,
+    googleStatePendiente: sessionStorage.getItem("google_state"),
   }));
 }, 100);

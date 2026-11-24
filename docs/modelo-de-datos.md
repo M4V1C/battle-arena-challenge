@@ -175,7 +175,8 @@ Las reglas completas del juego están en [`docs/README.md`](README.md#reglas-del
 - `EstadoJuego` (`server/app/game_state.py`): sala, puestos, posiciones, puntajes, reactor, puertas, trampas, guardianes, eventos y prórrogas. Vive en memoria mientras corre el proceso; si los dos jugadores se desconectan antes del final, la sala se vacía y la partida se descarta sin guardar resultado.
 - `AlmacenAvatares` (`server/app/avatar_store.py`): selecciones e imágenes recibidas por TCP; solo en memoria.
 - Notificaciones: las últimas 20 (rechazos, eventos, contactos de guardián, fin de partida), con identificador creciente, dentro de cada estado.
-- Flujos de inicio de sesión con Google: en memoria, 15 minutos.
+- Flujos de inicio de sesión con Google: en memoria. Un flujo pendiente vence a los 15 minutos. Si el usuario cancela o el proveedor falla, el flujo queda `fallido` con un mensaje genérico. El token se entrega una sola vez (después el estado es `entregado`). Los flujos terminados se borran 2 minutos después.
+- Solo se vincula una cuenta local por su correo, o se crea una cuenta nueva, si Google confirma el correo (`email_verified`).
 
 ## Integridad actual
 
