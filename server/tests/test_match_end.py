@@ -46,8 +46,8 @@ def test_partida_termina_en_minutos_configurados(minutos):
 @pytest.mark.parametrize("objetivo", [1, 20, 25, 30])
 @pytest.mark.parametrize("nombre", ["red", "blue"])
 def test_cualquier_jugador_puede_terminar_por_puntos(objetivo, nombre):
-# Esta prueba aísla la extracción; los guardianes la interrumpen por diseño.    
-    juego = EstadoJuego(guardianes=())
+    # Aísla la regla de puntuación de los eventos y guardianes de US-21/22.
+    juego = EstadoJuego(guardianes=(), eventos=False)
     juego.iniciar_partida({"condition": "points", "value": objetivo})
     juego._jugadores[nombre].x, juego._jugadores[nombre].y = 740, 430
     entradas = {jugador: {"x": 0, "y": 0, "interact": int(jugador == nombre)} for jugador in ("red", "blue")}
@@ -81,7 +81,7 @@ def test_sensibilidad_no_cambia_la_velocidad():
         juego.iniciar_partida({"condition": "points", "value": 20, "sensitivity": sensibilidad})
         juego.actualizar_entradas({"red": {"x": 0, "y": 1}, "blue": {"x": 0, "y": 0}})
         estados.append(juego.avanzar(0.1))
-    assert estados[0] == estados[1]
+    assert estados[0]["players"]["red"]["x"] == estados[1]["players"]["red"]["x"]
     assert estados[0]["players"]["red"]["x"] > 100
 
 

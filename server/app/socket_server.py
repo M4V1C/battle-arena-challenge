@@ -11,7 +11,7 @@ from typing import Any, Callable
 from app.game_state import EstadoJuego, Rechazo
 from app.game_config import CONFIGURACION_INICIAL, AlmacenConfiguracion
 from app.avatar_store import AlmacenAvatares
-from app.resultados import guardar_resultado
+from app.resultados_store import AlmacenResultados
 
 HOST = os.getenv("SOCKET_HOST", "0.0.0.0")
 PORT = int(os.getenv("SOCKET_PORT", "9000"))
@@ -79,8 +79,9 @@ def _solicitud_de_puesto(
         return _rechazo("not_joined", "Primero debes unirte a la partida con join.")
     try:
         if tipo == "start":
+            escenario = mensaje.get("scenario")
             ajustes = configuracion.obtener() if configuracion else CONFIGURACION_INICIAL
-            return estado_juego.iniciar_por(puesto, ajustes, mensaje.get("scenario"))
+            return estado_juego.iniciar_por(puesto, ajustes, escenario)
         if mensaje.get("player", mensaje.get("slot", puesto)) != puesto:
             raise Rechazo(
                 "wrong_slot", "Solo puedes enviar las entradas de tu propio puesto."
@@ -232,12 +233,34 @@ def crear_socket_servidor(host: str = HOST, port: int = PORT) -> socket.socket:
     return servidor
 
 
+def guardar_resultado_final(resultados: AlmacenResultados, resultado: dict[str, Any]) -> bool:
+    """Adapta el resultado autoritativo al formato usado por perfil y ranking."""
+    jugadores = {
+        puesto: {
+            "usuario": datos["username"],
+            "score": datos["score"],
+        }
+        for puesto, datos in resultado["players"].items()
+    }
+    respuesta = resultados.guardar_resultado(
+        resultado["id"], jugadores, resultado["winner"],
+        resultado["elapsed"], resultado["overtime"],
+        resultado["condition"], resultado["value"],
+    )
+    return bool(respuesta["ok"])
+
+
 def servir(
     servidor: socket.socket,
     validar_sesion: Callable[[Any], str | None] = validar_sesion_falsa,
+    resultados: AlmacenResultados | None = None,
 ) -> None:
     """Acepta conexiones y crea un hilo por cliente sobre el mismo estado."""
-    estado_juego = EstadoJuego(guardar_resultado=guardar_resultado)
+    resultados = resultados if resultados is not None else AlmacenResultados()
+
+    estado_juego = EstadoJuego(
+        guardar_resultado=lambda resultado: guardar_resultado_final(resultados, resultado)
+    )
     configuracion = AlmacenConfiguracion()
     detener_simulacion = threading.Event()
     avatares = AlmacenAvatares()
