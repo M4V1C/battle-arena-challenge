@@ -65,10 +65,8 @@ ARCHIVO_USUARIOS = os.path.join(CARPETA_PROYECTO, "usuarios.json")
 # se usan esas; si no, se usan los valores escritos aquí.
 SMTP_SERVIDOR = "smtp.gmail.com"
 SMTP_PUERTO = 587
-SMTP_USUARIO = os.environ.get("REACTOR_SMTP_USER", "andrewbp32@gmail.com")
-# .replace(" ", "") quita los espacios: Google muestra la clave en bloques de 4
-# letras separados por espacios, pero en realidad no los lleva.
-SMTP_CLAVE = os.environ.get("REACTOR_SMTP_PASS", "orwa vues mppv ijbk").replace(" ", "")
+SMTP_USUARIO = os.environ.get("REACTOR_SMTP_USER", "")
+SMTP_CLAVE = os.environ.get("REACTOR_SMTP_PASS", "").replace(" ", "")
 
 # Dirección que aparece como remitente en el correo. Con Gmail es la misma
 # que SMTP_USUARIO; con otros servicios podría ser distinta.

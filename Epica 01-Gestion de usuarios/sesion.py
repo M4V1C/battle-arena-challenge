@@ -27,12 +27,14 @@ class Sesion:
         self.usuario = cuenta["usuario"]
         self.correo = cuenta["correo"]
         self.avatar = cuenta.get("avatar", "default")
+        self.token = cuenta.get("token")
 
     def cerrar(self):
         """Vacía la sesión."""
         self.usuario = None
         self.correo = None
         self.avatar = "default"
+        self.token = None
 
 
 SESION = Sesion()                  # Una única sesión para todo el programa

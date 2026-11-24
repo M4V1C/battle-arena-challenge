@@ -64,6 +64,22 @@ class PantallaVictoria:
         self._ganador = partida.get("winner")
         self._puntos_rojo = jugadores.get("red", {}).get("score", 0)
         self._puntos_azul = jugadores.get("blue", {}).get("score", 0)
+        # Duración total de la partida, proporcionada por el servidor.
+        self._duracion = max(0, int(partida.get("elapsed", 0)))
+        self._minutos, self._segundos = divmod(self._duracion, 60)
+        # Determinar las posiciones finales según el ganador oficial.
+        if self._ganador == "red":
+            self._podio = [("red", 1), ("blue", 2)]
+        elif self._ganador == "blue":
+            self._podio = [("blue", 1), ("red", 2)]
+        else:
+            # Estado de respaldo si no se recibe un ganador válido.
+            self._podio = [("red", 1), ("blue", 1)]
+
+        # Información adicional del resultado.
+        self._condicion = partida.get("condition", "")
+        self._objetivo = partida.get("value", 0)
+        self._prorrogas = partida.get("overtime", 0)
 
         colores_estrellas = [
             (255, 215, 80),   # Dorado
@@ -100,6 +116,8 @@ class PantallaVictoria:
         fuente_titulo = pygame.font.SysFont(None, 90)
         fuente_texto = pygame.font.SysFont(None, 48)
         fuente_boton = pygame.font.SysFont(None, 38)
+        fuente_podio = pygame.font.SysFont(None, 52)
+        fuente_detalle = pygame.font.SysFont(None, 34)
 
         reloj = pygame.time.Clock()
 
@@ -118,7 +136,7 @@ class PantallaVictoria:
             print(f"No se pudo reproducir la música de victoria: {error}")
 
         boton_volver = pygame.Rect(
-            ANCHO // 2 - 170, ALTO - 130, 340, 65
+            ANCHO // 2 - 170, ALTO - 85, 340, 55
         )
 
         while True:
@@ -200,18 +218,95 @@ class PantallaVictoria:
                     titulo.get_rect(center=(ANCHO // 2, 130)),
                 )
 
-            # Resultados finales.
-            resultados = [
-                (f"{self._nombres['red']}: {self._puntos_rojo} puntos", DORADO),
-                (f"{self._nombres['blue']}: {self._puntos_azul} puntos", DORADO),
-            ]
+            # Podio oficial de la partida.
+            for indice, (puesto, posicion) in enumerate(self._podio):
+                nombre = self._nombres.get(puesto, puesto.capitalize())
 
-            for indice, (texto, color) in enumerate(resultados):
-                superficie = fuente_texto.render(texto, True, color)
+                puntos = (
+                    self._puntos_rojo
+                    if puesto == "red"
+                    else self._puntos_azul
+                )
+
+                color = DORADO if posicion == 1 else BLANCO
+
+                texto = f"{posicion}° LUGAR - {nombre}: {puntos} puntos"
+
+                superficie = fuente_podio.render(texto, True, color)
+
                 pantalla.blit(
                     superficie,
                     superficie.get_rect(
-                        center=(ANCHO // 2, 540 + indice * 65)
+                        center=(ANCHO // 2, 520 + indice * 65)
+                    ),
+                )
+
+            # Mostrar la duración total de la partida.
+            texto_duracion = (
+                f"Duración: {self._minutos:02d}:{self._segundos:02d}"
+            )
+
+            superficie_duracion = fuente_texto.render(
+                texto_duracion,
+                True,
+                BLANCO,
+            )
+
+            pantalla.blit(
+                superficie_duracion,
+                superficie_duracion.get_rect(
+                    center=(ANCHO // 2, 690)
+                ),
+            )
+
+            # Información de la partida.
+            condiciones = {
+                "time": "Tiempo",
+                "points": "Puntuación",
+            }
+
+            nombre_condicion = condiciones.get(
+                self._condicion,
+                str(self._condicion).capitalize()
+            )
+
+            if self._ganador not in ("red", "blue"):
+                texto_condicion = "Resultado: empate"
+            elif self._condicion == "points":
+                texto_condicion = (
+                    f"Victoria por puntos | Objetivo: {self._objetivo} puntos"
+                )
+            elif self._condicion == "time":
+                texto_condicion = (
+                    f"Victoria por tiempo | Límite: {self._objetivo} minutos"
+                )
+            else:
+                texto_condicion = f"Condición: {nombre_condicion}"
+
+            superficie_condicion = fuente_detalle.render(
+                texto_condicion,
+                True,
+                BLANCO,
+            )
+
+            pantalla.blit(
+                superficie_condicion,
+                superficie_condicion.get_rect(
+                    center=(ANCHO // 2, 745)
+                ),
+            )
+
+            if self._prorrogas:
+                texto_prorrogas = fuente_detalle.render(
+                    f"Prórrogas: {self._prorrogas}",
+                    True,
+                    DORADO,
+                )
+
+                pantalla.blit(
+                    texto_prorrogas,
+                    texto_prorrogas.get_rect(
+                        center=(ANCHO // 2, 790)
                     ),
                 )
 

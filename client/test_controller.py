@@ -154,11 +154,68 @@ class IntegracionJuegoTest(unittest.TestCase):
                 "up": pygame.K_UP, "down": pygame.K_DOWN,
             },
         }
-        juego._contadores = {
-            "red": {"shoot": 0, "interact": 0},
-            "blue": {"shoot": 0, "interact": 0},
-        }
+        juego._puesto = "red"
+        juego._contadores = {"shoot": 0, "interact": 0}
+        juego._inicio_solicitado = False
+        juego._escenario = "arena_clasica"
+        juego._conexion = Mock()
         return juego
+
+    def test_no_inicia_si_falta_el_segundo_jugador(self):
+        juego = self.crear_juego()
+
+        estado = {
+            "match": {"started": False, "finished": False},
+            "players": {
+                "red": {"connected": True},
+                "blue": {"connected": False},
+            },
+        }
+
+        juego._intentar_iniciar_partida(estado)
+
+        juego._conexion.enviar_mensaje.assert_not_called()
+        self.assertFalse(juego._inicio_solicitado)
+
+    def test_inicia_cuando_ambos_jugadores_estan_conectados(self):
+        juego = self.crear_juego()
+
+        estado = {
+            "match": {"started": False, "finished": False},
+            "players": {
+                "red": {"connected": True},
+                "blue": {"connected": True},
+            },
+        }
+
+        juego._intentar_iniciar_partida(estado)
+
+        juego._conexion.enviar_mensaje.assert_called_once_with({
+            "type": "start",
+            "scenario": "arena_clasica",
+        })
+        self.assertTrue(juego._inicio_solicitado)
+
+    def test_no_envia_inicio_duplicado(self):
+        juego = self.crear_juego()
+
+        estado = {
+            "match": {"started": False, "finished": False},
+            "players": {
+                "red": {"connected": True},
+                "blue": {"connected": True},
+            },
+        }
+
+        juego._intentar_iniciar_partida(estado)
+        juego._intentar_iniciar_partida(estado)
+        juego._intentar_iniciar_partida(estado)
+
+        juego._conexion.enviar_mensaje.assert_called_once_with({
+            "type": "start",
+            "scenario": "arena_clasica",
+        })
+        self.assertTrue(juego._inicio_solicitado)
 
     @patch("game.pygame.key.get_pressed")
     def test_dualsense_mapea_stick_x_y_r2_al_jugador_rojo(self, get_pressed):
@@ -171,8 +228,10 @@ class IntegracionJuegoTest(unittest.TestCase):
 
         entradas = juego._leer_controles()
 
-        self.assertEqual(entradas["red"], {"x": 0.35, "y": -0.6, "shoot": 1, "interact": 1})
-        self.assertEqual(entradas["blue"], {"x": 0, "y": -1, "shoot": 0, "interact": 0})
+        self.assertEqual(
+            entradas,
+            {"x": 0.35, "y": -0.6, "shoot": 1, "interact": 1},
+        )
         juego._control.leer.assert_called_once()
 
     @patch("game.pygame.key.get_pressed")
@@ -184,8 +243,8 @@ class IntegracionJuegoTest(unittest.TestCase):
 
         entradas = juego._leer_controles()
 
-        self.assertEqual(entradas["red"]["x"], -1)
-        self.assertEqual(entradas["red"]["y"], 1)
+        self.assertEqual(entradas["x"], -1)
+        self.assertEqual(entradas["y"], 1)
 
     @patch("game.pygame.key.get_pressed")
     def test_contadores_de_control_solo_suben_al_pulsar(self, get_pressed):
@@ -200,9 +259,9 @@ class IntegracionJuegoTest(unittest.TestCase):
 
         entradas = [juego._leer_controles() for _ in range(3)]
 
-        self.assertEqual(entradas[0]["red"]["interact"], 1)
-        self.assertEqual(entradas[0]["red"]["shoot"], 1)
-        self.assertEqual(entradas[1]["red"]["interact"], 1)
-        self.assertEqual(entradas[1]["red"]["shoot"], 1)
-        self.assertEqual(entradas[2]["red"]["interact"], 2)
-        self.assertEqual(entradas[2]["red"]["shoot"], 1)
+        self.assertEqual(entradas[0]["interact"], 1)
+        self.assertEqual(entradas[0]["shoot"], 1)
+        self.assertEqual(entradas[1]["interact"], 1)
+        self.assertEqual(entradas[1]["shoot"], 1)
+        self.assertEqual(entradas[2]["interact"], 2)
+        self.assertEqual(entradas[2]["shoot"], 1)

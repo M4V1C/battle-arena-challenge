@@ -64,5 +64,11 @@ docker-data/
 # Imágenes personalizadas de los jugadores
 client/data/custom_avatars/
 
-# Selecciones locales de avatares
+# Datos locales de cuentas y selecciones de avatares
+Epica 01-Gestion de usuarios/usuarios.json
+Epica 01-Gestion de usuarios/usuarios.json.bak
+Epica 01-Gestion de usuarios/usuarios.json.tmp
+server/data/usuarios.json
+server/data/sesiones.json
+server/data/resultados.json
 client/data/avatars.json

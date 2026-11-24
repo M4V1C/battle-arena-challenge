@@ -25,6 +25,14 @@ from validaciones import (validar_usuario, validar_formato_correo, validar_contr
                           validar_confirmacion, validar_correo_con_api)
 from correo import enviar_correo_codigo, enviar_correo_recuperacion
 from perfil_datos import campos_perfil_iniciales
+from api_servidor import (
+    registrar,
+    verificar,
+    login,
+    solicitar_recuperacion as solicitar_remoto,
+    restablecer,
+    reenviar_verificacion as reenviar_remoto,
+)
 
 
 def generar_codigo():
@@ -65,45 +73,18 @@ def procesar_registro(campo_usuario, campo_correo, campo_clave, campo_confirmar)
     if any(campo.error for campo in campos):
         return None, ""
 
-    # --- Paso 2: usuario y correo únicos ---
-    usuarios = cargar_usuarios()
-    error_usuario, error_correo, cuenta_pendiente = buscar_duplicados(usuarios, usuario, correo)
-    campo_usuario.error = error_usuario
-    campo_correo.error = error_correo
-    if error_usuario or error_correo:
+    try:
+        respuesta = registrar(usuario, correo, clave)
+    except ValueError as error:
+        mensaje = str(error)
+        if "usuario" in mensaje.lower():
+            campo_usuario.error = mensaje
+        elif "correo" in mensaje.lower():
+            campo_correo.error = mensaje
+        else:
+            return None, mensaje
         return None, ""
-
-    # --- Paso 3: validar el correo con la API ---
-    es_valido, mensaje = validar_correo_con_api(correo)
-    if not es_valido:
-        campo_correo.error = mensaje
-        return None, ""
-
-    # --- Paso 4: enviar el correo con el código ---
-    codigo = generar_codigo()
-    se_envio, error_envio = enviar_correo_codigo(correo, usuario, codigo)
-    if not se_envio:
-        return None, error_envio
-
-    # --- Paso 5: guardar en usuarios.json ---
-    sal, hash_contrasena = hashear_contrasena(clave)
-    cuenta = {
-        "usuario": usuario,
-        "correo": correo,
-        "contrasena_sal": sal,
-        "contrasena_hash": hash_contrasena,
-        "correo_verificado": False,
-        "codigo_verificacion": codigo,
-        "codigo_expira": time.time() + MINUTOS_VALIDEZ_CODIGO * 60,
-    }
-    cuenta.update(campos_perfil_iniciales())     # avatar, fecha de registro, estadísticas...
-
-    if cuenta_pendiente is not None:
-        # Era un reintento: quitamos el registro viejo para reemplazarlo
-        usuarios = [u for u in usuarios if u is not cuenta_pendiente]
-    usuarios.append(cuenta)
-    guardar_usuarios(usuarios)
-    return usuario, ""
+    return usuario, f"Cuenta creada. Código de verificación: {respuesta['codigo_verificacion']}"
 
 
 # ---------------------------------------------------------------------
@@ -122,34 +103,12 @@ def procesar_verificacion(campo_codigo, nombre_usuario):
         campo_codigo.error = "Escribe el código que te enviamos."
         return False
 
-    usuarios = cargar_usuarios()
-    for u in usuarios:
-        if u.get("usuario") != nombre_usuario:
-            continue
-
-        # Si ya estaba verificada, no hay nada más que hacer
-        if u.get("correo_verificado"):
-            return True
-
-        # ¿Expiró el código?
-        if time.time() > u.get("codigo_expira", 0):
-            campo_codigo.error = "El código expiró. Vuelve atrás y crea la cuenta de nuevo."
-            return False
-
-        # ¿Es el código correcto?
-        if codigo != str(u.get("codigo_verificacion")):
-            campo_codigo.error = "El código es incorrecto."
-            return False
-
-        # ¡Correcto! Cambiamos el estado de la cuenta a "Correo verificado"
-        u["correo_verificado"] = True
-        u.pop("codigo_verificacion", None)     # Ya no hace falta guardar el código
-        u.pop("codigo_expira", None)
-        guardar_usuarios(usuarios)
+    try:
+        verificar(nombre_usuario, codigo)
         return True
-
-    campo_codigo.error = "No se encontró la cuenta."
-    return False
+    except ValueError as error:
+        campo_codigo.error = str(error)
+        return False
 
 
 def reenviar_codigo_verificacion(cuenta):
@@ -159,19 +118,14 @@ def reenviar_codigo_verificacion(cuenta):
     (así no se queda atascado si perdió el primer código).
     Devuelve (se_envio, mensaje_de_error).
     """
-    codigo = generar_codigo()
-    se_envio, error = enviar_correo_codigo(cuenta["correo"], cuenta["usuario"], codigo)
-    if not se_envio:
-        return False, error
-
-    # Guardamos el código nuevo en usuarios.json
-    usuarios = cargar_usuarios()
-    for u in usuarios:
-        if u.get("usuario") == cuenta["usuario"]:
-            u["codigo_verificacion"] = codigo
-            u["codigo_expira"] = time.time() + MINUTOS_VALIDEZ_CODIGO * 60
-    guardar_usuarios(usuarios)
-    return True, ""
+    try:
+        respuesta = reenviar_remoto(cuenta["usuario"])
+        if respuesta.get("ya_verificado"):
+            return True, ""
+        # El servidor conserva el código para la función de verificación.
+        return True, ""
+    except ValueError as error:
+        return False, str(error)
 
 
 # ---------------------------------------------------------------------
@@ -204,16 +158,25 @@ def procesar_login(campo_ident, campo_clave):
         return "error", "", None
 
     # --- Paso 2: buscar cuenta y comprobar contraseña ---
-    # Si el usuario no existe O la contraseña falla, damos el MISMO mensaje:
-    # así nadie puede averiguar qué usuarios existen probando nombres.
-    cuenta = buscar_cuenta(cargar_usuarios(), identificador)
-    if cuenta is None or not contrasena_correcta(cuenta, clave):
-        return "error", "Usuario o contraseña incorrectos.", None
+    try:
+        respuesta = login(identificador, clave)
+    except ValueError as error:
+        return "error", str(error), None
 
-    # --- Paso 3: correo verificado ---
-    if not cuenta.get("correo_verificado", False):
-        return "no_verificado", "", cuenta
+    if respuesta.get("no_verificado"):
+        return "no_verificado", "", {
+            "usuario": respuesta["usuario"],
+            "correo": respuesta.get("correo", ""),
+            "correo_verificado": False,
+        }
 
+    cuenta = {
+        "usuario": respuesta["usuario"],
+        "correo": respuesta.get("correo", ""),
+        "avatar": respuesta.get("avatar", "default"),
+        "correo_verificado": True,
+        "token": respuesta["token"],
+    }
     return "ok", "", cuenta
 
 
@@ -246,23 +209,11 @@ def solicitar_recuperacion(campo_correo):
     if campo_correo.error:
         return False, ""
 
-    usuarios = cargar_usuarios()
-    cuenta = buscar_cuenta_por_correo(usuarios, correo)
-
-    if cuenta is not None:
-        codigo = generar_codigo()
-        se_envio, error_envio = enviar_correo_recuperacion(correo, cuenta["usuario"], codigo)
-        if not se_envio:
-            return False, error_envio
-
-        # Guardamos el código en la cuenta, con su caducidad y contador de intentos
-        # (en un proyecto real el código también se guardaría hasheado)
-        cuenta["recuperacion_codigo"] = codigo
-        cuenta["recuperacion_expira"] = time.time() + MINUTOS_VALIDEZ_RECUPERACION * 60
-        cuenta["recuperacion_intentos"] = 0
-        guardar_usuarios(usuarios)
-
-    return True, ""
+    try:
+        solicitar_remoto(correo)
+        return True, ""
+    except ValueError as error:
+        return False, str(error)
 
 
 def _borrar_codigo_recuperacion(cuenta):
@@ -294,40 +245,9 @@ def restablecer_contrasena(campo_codigo, campo_nueva, campo_confirmar, correo):
     if any(campo.error for campo in campos):
         return False
 
-    # --- Buscamos la cuenta y su código de recuperación ---
-    mensaje_invalido = "El código es incorrecto o ya expiró."
-    usuarios = cargar_usuarios()
-    cuenta = buscar_cuenta_por_correo(usuarios, correo)
-
-    if cuenta is None or "recuperacion_codigo" not in cuenta:
-        campo_codigo.error = mensaje_invalido
+    try:
+        restablecer(correo, codigo, nueva)
+        return True
+    except ValueError as error:
+        campo_codigo.error = str(error)
         return False
-
-    # ¿Expiró? Si sí, lo borramos para que no se pueda usar nunca más
-    if time.time() > cuenta.get("recuperacion_expira", 0):
-        _borrar_codigo_recuperacion(cuenta)
-        guardar_usuarios(usuarios)
-        campo_codigo.error = mensaje_invalido
-        return False
-
-    # ¿Demasiados intentos fallidos? Invalidamos el código (evita adivinarlo)
-    if cuenta.get("recuperacion_intentos", 0) >= MAX_INTENTOS_RECUPERACION:
-        _borrar_codigo_recuperacion(cuenta)
-        guardar_usuarios(usuarios)
-        campo_codigo.error = "Demasiados intentos. Solicita un código nuevo."
-        return False
-
-    # ¿Es el código correcto?
-    if codigo != str(cuenta["recuperacion_codigo"]):
-        cuenta["recuperacion_intentos"] = cuenta.get("recuperacion_intentos", 0) + 1
-        guardar_usuarios(usuarios)
-        campo_codigo.error = mensaje_invalido
-        return False
-
-    # --- ¡Correcto! Guardamos la nueva contraseña (con una sal nueva) ---
-    sal, hash_contrasena = hashear_contrasena(nueva)
-    cuenta["contrasena_sal"] = sal
-    cuenta["contrasena_hash"] = hash_contrasena
-    _borrar_codigo_recuperacion(cuenta)          # El código es de un solo uso
-    guardar_usuarios(usuarios)
-    return True

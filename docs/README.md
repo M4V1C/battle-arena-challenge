@@ -17,7 +17,7 @@ Esta página describe el producto y su alcance previsto. Para instalar herramien
 | Sprint 2 | Primera implementación (MVP) | 22 oct 2026 | En desarrollo |
 | Sprint 3 | Evolución del producto | 23 nov 2026 | Pendiente |
 
-La implementación actual incluye una API base con FastAPI, un endpoint `/health`, una arena compartida con movimiento de dos jugadores, pruebas automatizadas y un entorno Docker con PostgreSQL 16. Las funcionalidades de juego descritas a continuación son el alcance previsto, no funcionalidades ya implementadas.
+La implementación actual incluye una API base con FastAPI, un endpoint `/health`, una arena con movimiento de dos jugadores, pruebas automatizadas y un entorno Docker. Las funcionalidades de juego descritas a continuación son el alcance previsto, no todas están implementadas.
 
 ## Flujo que demuestra el MVP
 
@@ -33,7 +33,7 @@ El sistema se compone de tres piezas principales:
 
 | Componente | Responsabilidad prevista | Tecnología / estado |
 |------------|-------------------------|---------------------|
-| **API de cuentas y datos** | Registro, verificación de correo, login, perfil, avatares, configuración y persistencia | Base FastAPI y PostgreSQL 16 en Docker; funcionalidades y conexión a la base de datos pendientes |
+| **API de cuentas y datos** | Registro, verificación de correo, login, perfil, avatares, configuración y persistencia | Persistencia en archivos JSON; FastAPI expone únicamente `/health` en la implementación actual |
 | **Servidor de juego** | Procesa entradas y mantiene el estado autoritativo de los dos cuadrados en una arena compartida | FastAPI y servidor TCP con hilos por conexión; la lógica de movimiento está en `server/app/game_state.py` |
 | **Cliente** | Ventana local de dos jugadores, lectura de teclado y representación del estado recibido | Python + pygame; rojo usa WASD y azul las flechas |
 

@@ -31,7 +31,7 @@ class PantallasTest(unittest.TestCase):
         ))
 
     def test_navegacion_sin_servidor(self):
-        self.pulsar(self.app.botones()[0][0].center)
+        self.app.pantalla_actual = "inicio"
         self.assertEqual(self.app.pantalla_actual, "inicio")
         boton_configuracion = next(
             rectangulo
@@ -50,20 +50,42 @@ class PantallasTest(unittest.TestCase):
     def test_partida_vuelve_al_inicio(self, juego):
         juego.return_value.ejecutar.return_value = True
         self.app.pantalla_actual = "inicio"
+
         self.pulsar(self.app.botones()[0][0].center)
-        self.assertEqual(self.app.pantalla_actual, "inicio")
+        self.assertEqual(self.app.pantalla_actual, "escenarios")
+
+        boton_confirmar = next(
+            rectangulo
+            for rectangulo, _, destino in self.app.botones()
+            if destino == "confirmar_escenario"
+        )
+        self.pulsar(boton_confirmar.center)
+
+        juego.assert_called_once()
+        juego.return_value.ejecutar.assert_called_once()
         self.assertTrue(self.app.activa)
 
     @patch("screens.Juego", side_effect=ConnectionRefusedError("Sin servidor"))
     def test_error_de_conexion_permite_seguir_en_menu(self, juego):
         self.app.pantalla_actual = "inicio"
+
         self.pulsar(self.app.botones()[0][0].center)
+        self.assertEqual(self.app.pantalla_actual, "escenarios")
+
+        boton_confirmar = next(
+            rectangulo
+            for rectangulo, _, destino in self.app.botones()
+            if destino == "confirmar_escenario"
+        )
+        self.pulsar(boton_confirmar.center)
+
+        juego.assert_called_once()
         self.assertEqual(self.app.error, "Sin servidor")
         self.assertTrue(self.app.activa)
 
     @patch("game.ConexionServidor")
     def test_flecha_cierra_conexion_sin_cerrar_pygame(self, conexion):
-        juego = Juego("127.0.0.1", 9000)
+        juego = Juego("127.0.0.1", 9000, token="jugador_prueba")
         pygame.event.clear()
         pygame.event.post(pygame.event.Event(
             pygame.MOUSEBUTTONDOWN, button=1, pos=VOLVER.center
@@ -74,7 +96,7 @@ class PantallasTest(unittest.TestCase):
 
     @patch("game.ConexionServidor")
     def test_cerrar_ventana_termina_aplicacion(self, conexion):
-        juego = Juego("127.0.0.1", 9000)
+        juego = Juego("127.0.0.1", 9000, token="jugador_prueba")
         pygame.event.clear()
         pygame.event.post(pygame.event.Event(pygame.QUIT))
         self.assertFalse(juego.ejecutar())
@@ -82,7 +104,7 @@ class PantallasTest(unittest.TestCase):
 
     def test_cargar_editar_y_guardar_configuracion(self):
         self.app._abrir_configuracion()
-        self.red.obtener_estado.return_value = {
+        self.red.obtener_mensaje.return_value = {
             "type": "config", "config": {"condition": "points", "value": 25, "sensitivity": 1.5}
         }
         self.app.actualizar_configuracion()
@@ -95,7 +117,7 @@ class PantallasTest(unittest.TestCase):
             {"condition": "time", "value": 2, "sensitivity": 1.5}
         )
         self.assertTrue(self.app._pendiente)
-        self.red.obtener_estado.return_value = {
+        self.red.obtener_mensaje.return_value = {
             "type": "config", "config": {"condition": "time", "value": 2, "sensitivity": 1.5}
         }
         self.app.actualizar_configuracion()
@@ -117,6 +139,7 @@ class PantallasTest(unittest.TestCase):
     def test_finalizar_partida_vuelve_al_inicio_y_cierra_conexion(
         self, conexion, pantalla_victoria
     ):
+        conexion.return_value.obtener_mensaje.return_value = None
         conexion.return_value.obtener_estado.return_value = {
             "type": "state",
             "match": {"finished": True, "winner": "red"},
@@ -128,7 +151,7 @@ class PantallasTest(unittest.TestCase):
 
         pantalla_victoria.return_value.ejecutar.return_value = True
 
-        juego = Juego("127.0.0.1", 9000)
+        juego = Juego("127.0.0.1", 9000, token="jugador_prueba")
         pygame.event.clear()
 
         self.assertTrue(juego.ejecutar())
@@ -136,13 +159,14 @@ class PantallasTest(unittest.TestCase):
         pantalla_victoria.assert_called_once_with(
             estado=juego._estado,
             avatares=juego._avatares,
+            nombres=juego._nombres,
         )
         pantalla_victoria.return_value.ejecutar.assert_called_once()
         conexion.return_value.cerrar.assert_called_once()
 
     @patch("game.ConexionServidor")
     def test_dibujo_separa_orientacion_y_direccion_deseada(self, conexion):
-        juego = Juego("127.0.0.1", 9000)
+        juego = Juego("127.0.0.1", 9000, token="jugador_prueba")
 
         juego._estado = {
             "players": {

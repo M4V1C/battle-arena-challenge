@@ -1,92 +1,107 @@
-# Modelo de datos — Battle Arena Challenge
+﻿# Modelo de datos - Battle Arena Challenge
 
-Borrador para el Sprint 2. Cubre jugadores, partidas y récords, como pide el enunciado.
+La persistencia actual se guarda en archivos JSON y archivos locales.
 
-## Diagrama entidad-relación
+## Archivos y datos persistentes
 
-```mermaid
-erDiagram
-    USUARIOS ||--o{ TOKENS : "solicita"
-    USUARIOS ||--o{ AVATARES : "sube (personalizados)"
-    AVATARES ||--o{ USUARIOS : "es elegido por"
-    USUARIOS ||--o{ PARTICIPACIONES : "juega"
-    PARTIDAS ||--|{ PARTICIPACIONES : "tiene"
-    CONFIGURACIONES ||--o{ PARTIDAS : "define"
-    USUARIOS ||--o{ PARTIDAS : "gana"
+### Cuentas y perfiles
 
-    USUARIOS {
-        int id PK
-        string username UK
-        string email UK
-        string password_hash
-        bool email_verificado
-        int avatar_id FK
-        datetime creado_en
-    }
-    AVATARES {
-        int id PK
-        string nombre
-        string archivo
-        bool es_default
-        int propietario_id FK "null si es default"
-    }
-    TOKENS {
-        int id PK
-        int usuario_id FK
-        string tipo "verificacion_correo | recuperar_password"
-        string token_hash
-        datetime expira_en
-        datetime usado_en
-    }
-    CONFIGURACIONES {
-        int id PK
-        string modo_fin "tiempo | puntos"
-        int duracion_min
-        int puntos_objetivo
-        int segundos_congelamiento
-        datetime creada_en
-    }
-    PARTIDAS {
-        int id PK
-        int configuracion_id FK
-        string escenario
-        string estado "esperando | en_curso | finalizada"
-        int minutos_extra
-        int ganador_id FK
-        datetime creada_en
-        datetime iniciada_en
-        datetime finalizada_en
-    }
-    PARTICIPACIONES {
-        int partida_id PK, FK
-        int usuario_id PK, FK
-        int puntaje
-        bool es_ganador
-    }
+Archivo: `Epica 01-Gestion de usuarios/usuarios.json`
+
+```json
+{
+  "usuario": "nombre",
+  "correo": "correo@example.com",
+  "contrasena_sal": "valor-hexadecimal",
+  "contrasena_hash": "hash-pbkdf2",
+  "correo_verificado": true,
+  "avatar": "avatar_1",
+  "fecha_registro": "26/10/2026",
+  "estadisticas": {
+    "partidas_jugadas": 0,
+    "victorias": 0,
+    "derrotas": 0,
+    "puntaje_total": 0,
+    "mejor_puntaje": 0,
+    "tiempo_total_seg": 0
+  },
+  "logros": [],
+  "historial": []
+}
 ```
 
-## Decisiones de diseño
+Las cuentas se leen y escriben mediante `Epica 01-Gestion de usuarios/base_datos.py`. La contraseña no se guarda en texto plano: se conserva una sal y el hash PBKDF2-SHA256.
 
-| Decisión | Motivo |
-|----------|--------|
-| `username` y `email` con restricción `UNIQUE` | US-01 (CA-01.2 y CA-01.3): la base de datos garantiza la unicidad aunque el código falle. El correo se compara en minúsculas. |
-| Contraseña como `password_hash` (bcrypt o argon2) | Nunca se guarda la contraseña en claro. |
-| Una sola tabla `TOKENS` con campo `tipo` | Sirve para la verificación de correo (US-02) y la recuperación de contraseña (US-05), ambos con vencimiento (`expira_en`) y uso único (`usado_en`). Se guarda el hash del token, no el token. |
-| `AVATARES` con `propietario_id` opcional | Los 5 avatares por defecto no tienen propietario; los subidos desde disco sí. `USUARIOS.avatar_id` apunta al elegido, así se conserva con la sesión cerrada (CA-06.4). |
-| `CONFIGURACIONES` separada de `PARTIDAS` | La ventana de configuración (US-08) recupera la última configuración usada y cada partida conserva la suya. |
-| `minutos_extra` en `PARTIDAS` | El desempate de la US-16 suma 2 minutos y mantiene el puntaje. |
-| `PARTICIPACIONES` con clave compuesta | Relación muchos a muchos entre jugadores y partidas, con el puntaje de cada uno. |
-| Récords como **consulta o vista**, no como tabla | Partidas jugadas, victorias y puntaje máximo salen de `PARTICIPACIONES`. Así no se duplican datos ni se desincronizan. |
-| Escenario como texto (`escenario`) | Identifica un archivo de mapa del cliente/servidor; no hace falta tabla para el Sprint 2. |
+### Avatares
 
-## Qué se guarda en la base y qué en memoria
+Archivo de selección: `client/data/avatars.json`
 
-- **Persistente:** cuentas, avatares, tokens, configuraciones, partidas y puntajes finales. El enunciado no acepta guardar esto solo en memoria.
-- **En memoria del servidor (mientras dura la partida):** posición actual de cada avatar, conexiones WebSocket y el temporizador. Cambian muchas veces por segundo y no tiene sentido escribirlas en la base. Al finalizar la partida se guardan los puntajes y el ganador.
+```json
+{
+  "red": "avatar_1",
+  "blue": "avatar_2"
+}
+```
 
-## Reglas de integridad
+Los avatares personalizados se copian a `client/data/custom_avatars/` y se identifican con `custom_<uuid>.<extension>`.
 
-- `USUARIOS.email_verificado` debe ser verdadero para poder iniciar una partida (CA-02.5).
-- Una partida necesita al menos 2 filas en `PARTICIPACIONES` para pasar de `esperando` a `en_curso` (CA-09.2).
-- Si `modo_fin = 'tiempo'`, `duracion_min` es obligatorio; si es `'puntos'`, lo es `puntos_objetivo`.
-- `PARTIDAS.ganador_id` es nulo hasta que la partida finaliza.
+### Configuración de partida
+
+Archivo: `server/data/game_config.json`
+
+```json
+{
+  "condition": "points",
+  "value": 20,
+  "sensitivity": 1.0
+}
+```
+
+`condition` puede ser `points` o `time`. `value` es positivo: puntos objetivo o minutos según el modo seleccionado.
+
+### Escenarios
+
+Archivos: `server/data/escenarios/*.json`
+
+```json
+{
+  "id": "arena_clasica",
+  "nombre": "Arena clásica",
+  "limites": {"ancho": 1600, "alto": 900},
+  "posiciones_iniciales": {
+    "red": {"x": 100, "y": 100},
+    "blue": {"x": 1460, "y": 760}
+  },
+  "reactor": {"x": 780, "y": 430, "ancho": 40, "alto": 40},
+  "obstaculos": [],
+  "puertas": [],
+  "zonas_trampas": []
+}
+```
+
+### Reglas de puntuación
+
+Archivo: `server/data/reglas.json`
+
+```json
+{
+  "puntos_por_energia": 1,
+  "intervalo_extraccion": 0.5
+}
+```
+
+## Datos temporales del servidor
+
+- `EstadoJuego`: posiciones, dirección, puntos, prórroga y estado de puertas/trampas/reactor; se conserva solo mientras corre el proceso.
+- `AlmacenAvatares`: selecciones e imágenes recibidas; se conserva solo en memoria del servidor.
+- Notificaciones: lista corta de rechazos y eventos entregada al cliente por estado.
+
+## Integridad actual
+
+- Usuario y correo se buscan sin distinguir mayúsculas.
+- Contraseñas almacenadas como sal + hash PBKDF2-SHA256.
+- Los JSON se escriben primero en archivos temporales y luego se renombran.
+- Si `usuarios.json` está vacío o dañado, el módulo comienza con una lista vacía y conserva una copia `.bak` cuando corresponde.
+- Los partidos no usan identificadores persistentes todavía. El historial se guarda dentro de cada cuenta local.
+
+Esta representación describe únicamente archivos JSON y datos temporales del proceso.

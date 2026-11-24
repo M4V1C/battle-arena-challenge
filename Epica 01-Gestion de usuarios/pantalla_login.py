@@ -14,6 +14,8 @@ from componentes import (CampoTexto, Boton, EnlaceTexto, calcular_panel, dibujar
                          manejar_teclado_campos)
 from estado import registrar_pantalla, ir_a, mostrar_procesando
 from sesion import SESION
+import webbrowser
+from api_servidor import iniciar_google, estado_google
 from cuentas import procesar_login, reenviar_codigo_verificacion
 
 
@@ -32,6 +34,7 @@ CAMPOS = [campo_ident, campo_clave]
 enlace_olvido = EnlaceTexto(PANEL.centerx, PANEL.y + 332, "¿Olvidaste tu contraseña?")
 boton_login = Boton(X_CAMPOS, PANEL.y + 375, ANCHO_CAMPOS, 52, "Iniciar sesión")
 boton_ir_registro = Boton(X_CAMPOS, PANEL.y + 512, ANCHO_CAMPOS, 52, "Crear cuenta")
+boton_google = Boton(X_CAMPOS, PANEL.y + 430, ANCHO_CAMPOS, 52, "Continuar con Google")
 
 
 # ---------------------------------------------------------------------
@@ -49,7 +52,8 @@ def dibujar_login(estado):
 
     enlace_olvido.dibujar(VENTANA)
     boton_login.dibujar(VENTANA)
-    dibujar_mensaje(estado, centro_x, PANEL.y + 440)
+    boton_google.dibujar(VENTANA)
+    dibujar_mensaje(estado, centro_x, PANEL.y + 490)
 
     dibujar_texto_centrado("¿No tienes cuenta? Regístrate", FUENTE_TEXTO, AZUL_CLARO,
                            centro_x, PANEL.y + 476)
@@ -61,6 +65,29 @@ def dibujar_login(estado):
 # ---------------------------------------------------------------------
 def eventos_login(evento, estado):
     presiono_enter = manejar_teclado_campos(evento, CAMPOS)
+
+    if getattr(estado, "google_state", None):
+        try:
+            resultado = estado_google(estado.google_state)
+            if resultado["estado"] == "completado":
+                cuenta = resultado["resultado"]
+                SESION.iniciar(cuenta)
+                estado.google_state = None
+                ir_a(estado, "juego")
+            elif resultado["estado"] == "expirado":
+                estado.google_state = None
+                estado.poner_mensaje("El inicio con Google expiró. Inténtalo otra vez.")
+        except ValueError as error:
+            estado.poner_mensaje(str(error))
+
+    if boton_google.fue_presionado(evento):
+        try:
+            inicio = iniciar_google()
+            estado.google_state = inicio["state"]
+            webbrowser.open(inicio["authorization_url"])
+            estado.poner_mensaje("Completa el inicio de sesión en Google.", AZUL_CLARO)
+        except ValueError as error:
+            estado.poner_mensaje(str(error))
 
     # Botón "Iniciar sesión" (o ENTER)
     if boton_login.fue_presionado(evento) or presiono_enter:

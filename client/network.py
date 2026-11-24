@@ -20,18 +20,27 @@ class ConexionServidor:
         # Las entradas representan el estado más reciente del teclado; no se
         # necesita acumular entradas viejas si la red se retrasa.
         self._entradas: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=1)
+        self._solicitudes: queue.Queue[dict[str, Any]] = queue.Queue()
         self._estados: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=1)
+        self._mensajes: queue.Queue[dict[str, Any]] = queue.Queue()
         self._cerrando = threading.Event()
-        self._solicitud_inicial = solicitud_inicial or {"type": "start"}
+        self._solicitud_inicial = solicitud_inicial
         self._hilo = threading.Thread(target=self._procesar_red, daemon=True)
         self._hilo.start()
 
     def guardar_configuracion(self, configuracion: dict[str, Any]) -> None:
-        self._encolar({"type": "save_config", "config": configuracion})
+        self.enviar_mensaje({"type": "save_config", "config": configuracion})
 
-    # Programa el último estado de controles de ambos jugadores.
-    def enviar_entradas(self, entradas: dict[str, dict[str, int]]) -> None:
-        self._encolar({"type": "input", "inputs": entradas})
+    # Envía los controles del jugador local.
+    def enviar_entradas(self, entradas: dict[str, int]) -> None:
+        self._encolar({"type": "input", **entradas})
+
+    # Envía solicitudes importantes y evita acumular consultas de estado.
+    def enviar_mensaje(self, mensaje: dict[str, Any]) -> None:
+        if mensaje.get("type") == "state":
+            self._encolar(mensaje)
+        else:
+            self._solicitudes.put(mensaje)
 
     # Devuelve el estado más reciente recibido, si hay uno disponible.
     def obtener_estado(self) -> dict[str, Any] | None:
@@ -41,6 +50,13 @@ class ConexionServidor:
                 estado = self._estados.get_nowait()
             except queue.Empty:
                 return estado
+
+    # Devuelve el siguiente mensaje del servidor, si hay uno disponible.
+    def obtener_mensaje(self) -> dict[str, Any] | None:
+        try:
+            return self._mensajes.get_nowait()
+        except queue.Empty:
+            return None
 
     # Detiene el trabajador y cierra el socket de forma ordenada.
     def cerrar(self) -> None:
@@ -85,9 +101,12 @@ class ConexionServidor:
                 inicial = None
             else:
                 try:
-                    mensaje = self._entradas.get(timeout=0.1)
+                    mensaje = self._solicitudes.get_nowait()
                 except queue.Empty:
-                    continue
+                    try:
+                        mensaje = self._entradas.get(timeout=0.1)
+                    except queue.Empty:
+                        continue
 
             # Envía la entrada al servidor y espera la respuesta.
             try:
@@ -99,8 +118,11 @@ class ConexionServidor:
                 respuesta = json.loads(linea)
                 if not isinstance(respuesta, dict):
                     raise ValueError("El servidor devolvió una respuesta inválida.")
-                self._publicar_estado(respuesta)
+                if respuesta.get("type") == "state":
+                    self._publicar_estado(respuesta)
+                else:
+                    self._mensajes.put(respuesta)
             except (OSError, ValueError) as error:
                 if not self._cerrando.is_set():
-                    self._publicar_estado({"type": "error", "message": str(error)})
+                    self._mensajes.put({"type": "error", "message": str(error)})
                 return
