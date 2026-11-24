@@ -92,6 +92,19 @@ Copy-Item .env.example .env
 
 Editar `.env` solo para configurar las variables SMTP si se desean enviar códigos de correo. El archivo `.env` está ignorado por Git; no compartir contraseñas ni confirmarlo en commits. El proyecto no usa una conexión a datos externos.
 
+#### Modo demo de códigos (`EXPOSE_CODES`)
+
+El servidor **no envía correos**: los códigos de verificación de cuenta y de recuperación de contraseña se guardan en `server/data/usuarios.json`, pero por defecto la API **no** los devuelve en sus respuestas (`EXPOSE_CODES=0`). Así nadie puede verificar una cuenta ajena ni restablecer su contraseña con solo conocer el correo.
+
+Para una demo o para desarrollo, se puede activar `EXPOSE_CODES=1` en `.env` (Docker Compose la pasa al contenedor) o en la terminal antes de arrancar la API:
+
+```powershell
+$env:EXPOSE_CODES = "1"
+python -m uvicorn app.main:app --app-dir .\server --port 8000
+```
+
+Con `EXPOSE_CODES=1`, `POST /auth/register` y `POST /auth/verify/resend` incluyen `codigo_verificacion`, y `POST /auth/recovery/request` incluye `codigo_recuperacion`. Cualquier otro valor equivale a desactivado. No usar este modo fuera de una demo.
+
 ## Ejecutar con Docker
 
 Desde la raíz del repositorio:

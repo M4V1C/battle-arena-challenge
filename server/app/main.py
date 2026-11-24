@@ -1,3 +1,4 @@
+import os
 import threading
 from contextlib import asynccontextmanager
 
@@ -72,6 +73,16 @@ def participa(partida: dict, usuario: str) -> bool:
     )
 
 
+CODIGOS_DE_UN_SOLO_USO = ("codigo_verificacion", "codigo_recuperacion")
+
+
+def sin_codigos(respuesta: dict) -> dict:
+    """Quita los códigos de la respuesta salvo en modo demo (EXPOSE_CODES=1)."""
+    if os.environ.get("EXPOSE_CODES", "0").strip() == "1":
+        return respuesta
+    return {clave: valor for clave, valor in respuesta.items() if clave not in CODIGOS_DE_UN_SOLO_USO}
+
+
 class Registro(BaseModel):
     usuario: str = Field(min_length=3, max_length=20)
     correo: str
@@ -106,7 +117,7 @@ def health():
 @app.post("/auth/register")
 def registrar(datos: Registro):
     try:
-        return cuentas.registrar(datos.usuario, datos.correo, datos.clave)
+        return sin_codigos(cuentas.registrar(datos.usuario, datos.correo, datos.clave))
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
@@ -130,14 +141,14 @@ def login(datos: Login):
 @app.post("/auth/verify/resend")
 def reenviar_verificacion(datos: dict):
     try:
-        return cuentas.reenviar_verificacion(str(datos.get("usuario", "")))
+        return sin_codigos(cuentas.reenviar_verificacion(str(datos.get("usuario", ""))))
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.post("/auth/recovery/request")
 def solicitar_recuperacion(datos: RecuperacionSolicitud):
-    return cuentas.solicitar_recuperacion(datos.correo)
+    return sin_codigos(cuentas.solicitar_recuperacion(datos.correo))
 
 
 @app.post("/auth/recovery/reset")

@@ -13,6 +13,8 @@ from app.socket_server import crear_socket_servidor, guardar_resultado_final, se
 def test_aceptacion_registro_login_resultado_ranking_e_historial(tmp_path, monkeypatch):
     import app.main as modulo
 
+    # Sin servidor de correo, la demo obtiene el código de la respuesta HTTP.
+    monkeypatch.setenv("EXPOSE_CODES", "1")
     cuentas = AlmacenCuentas(tmp_path / "usuarios.json", tmp_path / "sesiones.json")
     resultados = AlmacenResultados(tmp_path / "resultados.json")
     monkeypatch.setattr(modulo, "cuentas", cuentas)

@@ -84,7 +84,11 @@ def procesar_registro(campo_usuario, campo_correo, campo_clave, campo_confirmar)
         else:
             return None, mensaje
         return None, ""
-    return usuario, f"Cuenta creada. Código de verificación: {respuesta['codigo_verificacion']}"
+    # El servidor solo devuelve el código en modo demo (EXPOSE_CODES=1).
+    codigo = respuesta.get("codigo_verificacion")
+    if codigo:
+        return usuario, f"Cuenta creada. Código de verificación: {codigo}"
+    return usuario, "Cuenta creada. Revisa tu correo para obtener el código de verificación."
 
 
 # ---------------------------------------------------------------------

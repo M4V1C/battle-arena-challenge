@@ -123,6 +123,7 @@ def test_login_social_google_vincula_o_crea_cuenta(tmp_path):
 def test_endpoints_rest_principales(tmp_path, monkeypatch):
     import app.main as modulo
 
+    monkeypatch.setenv("EXPOSE_CODES", "1")
     monkeypatch.setattr(modulo, "cuentas", AlmacenCuentas(tmp_path / "usuarios.json", tmp_path / "sesiones.json"))
     monkeypatch.setattr(modulo, "resultados", AlmacenResultados(tmp_path / "resultados.json"))
     cliente = TestClient(modulo.app)
