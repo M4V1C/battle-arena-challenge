@@ -84,7 +84,7 @@ Los valores salen de `server/data/reglas.json` y de las constantes de `server/ap
 ### Guardianes
 
 - Hay cuatro guardianes de 40 px, uno en cada esquina del escenario.
-- Cada guardián persigue al jugador más cercano que no esté inmovilizado (por trampa o aturdimiento). Si los dos están inmovilizados, espera quieto.
+- Cada guardián persigue al jugador más cercano que no esté inmovilizado (por trampa o aturdimiento). Si los dos están inmovilizados, se acerca al más cercano; al tocarlo le suma `duracion_aturdimiento` una sola vez por contacto.
 - Se mueven a `velocidad_guardian` (120 px/s) y respetan barreras, puertas cerradas, zonas no transitables y los límites.
 - Al tocar a un jugador (aunque ya esté atrapado) le suman `duracion_aturdimiento` (2 s) de inmovilización y lo marcan como aturdido. Si era el operador, suelta el reactor. Un contacto continuo cuenta una sola vez.
 - No modifican puntajes. Durante la *tregua* se detienen y no aturden.

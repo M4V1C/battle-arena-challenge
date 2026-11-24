@@ -884,17 +884,20 @@ class EstadoJuego:
             self._mover_y(jugador, jugador.dir_y * distancia / pasos)
 
     def _avanzar_guardianes(self, delta_t: float) -> None:
-        """Persiguen al jugador libre más cercano y aturden al tocar un avatar."""
+        """Persiguen al jugador libre más cercano (o al inmovilizado más cercano si no hay
+        ninguno libre) y aturden al tocar un avatar."""
         tamano = TAMANO_GUARDIAN
         velocidad = self._reglas.velocidad_guardian
         pasos = max(1, math.ceil(velocidad * delta_t / (tamano / 2)))
         paso_t = delta_t / pasos
         for guardian in self._guardianes:
             for _ in range(pasos):
-                elegibles = [
+                libres = [
                     (nombre, jugador) for nombre, jugador in self._jugadores.items()
                     if jugador.bloqueo_restante <= 0
                 ]
+                # Sin objetivo libre, se acercan al avatar inmovilizado más cercano.
+                elegibles = libres or list(self._jugadores.items())
                 if elegibles:
                     nombre, objetivo = min(
                         elegibles,
