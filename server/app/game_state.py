@@ -3,8 +3,9 @@
 import math
 import random
 import threading
+import uuid
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from app.game_config import CONFIGURACION_INICIAL, validar_configuracion
 from app.eventos import Evento, programar_eventos
@@ -127,8 +128,10 @@ class EstadoJuego:
         semilla: int | None = None,
         guardianes: tuple[Guardian, ...] | None = None,
         eventos: bool | None = None,
+        guardar_resultado: Callable[[dict[str, Any]], bool] | None = None,
     ):
         self._reglas = reglas if reglas is not None else cargar_reglas()
+        self._guardar_resultado = guardar_resultado
 
         self._configuracion = dict(CONFIGURACION_INICIAL)
         self._obstaculos = tuple(obstaculos)
@@ -237,6 +240,7 @@ class EstadoJuego:
             self._aplicar_escenario(datos)
         self._configuracion = configuracion
         self._reiniciar_estado()
+        self._id_partida = uuid.uuid4().hex
         if configuracion["condition"] == "time":
             self._limite_tiempo = configuracion["value"] * 60
         self._iniciada = True
@@ -358,6 +362,9 @@ class EstadoJuego:
         self._iniciada = False
         self._terminada = False
         self._ganador = None
+        self._id_partida: str | None = None
+        self._resultado_final: dict[str, Any] | None = None
+        self._resultado_persistido = False
         self._tiempo_partida = 0.0
         self._prorrogas = 0
         self._limite_tiempo = None
@@ -545,6 +552,7 @@ class EstadoJuego:
 
         tiempo = self._tiempo_partida
         prorrogas = self._prorrogas + 1
+        id_partida = self._id_partida
 
         self._reiniciar_estado()
 
@@ -552,9 +560,54 @@ class EstadoJuego:
             self._jugadores[nombre].puntos = puntaje
 
         self._tiempo_partida = tiempo
+        self._id_partida = id_partida
         self._prorrogas = prorrogas
         self._limite_tiempo = tiempo + 120
         self._iniciada = True
+        self._agregar_notificacion(
+            "overtime", f"Empate: prórroga {prorrogas} de dos minutos.", "warning"
+        )
+
+    def _cerrar_partida(self) -> None:
+        if self._terminada:
+            return
+        rojo = self._jugadores["red"].puntos
+        azul = self._jugadores["blue"].puntos
+        if rojo == azul:
+            self._iniciar_prorroga()
+            return
+        self._ganador = "red" if rojo > azul else "blue"
+        self._terminada = True
+        self._cerrar_eventos()
+        self._proyectiles.clear()
+        self._entradas = {puesto: (0, 0) for puesto in PUESTOS}
+        for jugador in self._jugadores.values():
+            jugador.mov_x = jugador.mov_y = 0.0
+        posiciones = {puesto: 1 if puesto == self._ganador else 2 for puesto in PUESTOS}
+        self._resultado_final = {
+            "id": self._id_partida,
+            "scenario": self._escenario_id,
+            "condition": self._configuracion["condition"],
+            "value": self._configuracion["value"],
+            "elapsed": self._tiempo_partida,
+            "overtime": self._prorrogas,
+            "winner": self._ganador,
+            "players": {
+                puesto: {"username": self._puestos[puesto],
+                         "score": self._jugadores[puesto].puntos,
+                         "position": posiciones[puesto]}
+                for puesto in PUESTOS
+            },
+        }
+        if self._guardar_resultado is not None:
+            try:
+                self._resultado_persistido = bool(self._guardar_resultado(self._resultado_final))
+            except (OSError, ValueError) as error:
+                self._agregar_notificacion("result_save_error", str(error), "danger")
+        self._agregar_notificacion(
+            "game_over", f"Partida terminada. Ganó {self._ganador}: {rojo}-{azul}.",
+            "good", codigo=self._id_partida,
+        )
 
     # Valida y aplica la entrada de UN puesto (la de su propia conexion).
     # No inicia la partida: fuera de una partida activa solo sincroniza los
@@ -744,6 +797,11 @@ class EstadoJuego:
                 self._mover_girando(jugador, intensidad, delta_t - tiempo_bloqueado, factor)
             self._activar_trampas(jugador)
             self._recoger_energia(nombre)
+            if condicion == "points" and self._prorrogas == 0 and any(
+                j.puntos >= limite for j in self._jugadores.values()
+            ):
+                self._cerrar_partida()
+                return
         if not self._evento_activo("guardian_truce"):
             self._avanzar_guardianes(delta_t)
         for jugador in self._jugadores.values():
@@ -761,14 +819,7 @@ class EstadoJuego:
             else any(j.puntos >= limite for j in self._jugadores.values())
         )
         if limite_alcanzado:
-            rojo = self._jugadores["red"].puntos
-            azul = self._jugadores["blue"].puntos
-            if rojo != azul:
-                self._ganador = "red" if rojo > azul else "blue"
-                self._terminada = True
-                self._cerrar_eventos()
-            else:
-                self._iniciar_prorroga()
+            self._cerrar_partida()
 
     def _mover_girando(self, jugador: Jugador, intensidad: float, delta_t: float,
                       factor: float = 1.0) -> None:
@@ -980,6 +1031,9 @@ class EstadoJuego:
                 "winner": self._ganador,
                 "time_limit": self._limite_tiempo,
                 "overtime": self._prorrogas,
+                "result": self._resultado_final,
+                "result_saved": self._resultado_persistido,
+                "event": "game_over" if self._terminada else None,
             },
             "players": {
                 nombre: {

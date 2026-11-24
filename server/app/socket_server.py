@@ -11,6 +11,7 @@ from typing import Any, Callable
 from app.game_state import EstadoJuego, Rechazo
 from app.game_config import CONFIGURACION_INICIAL, AlmacenConfiguracion
 from app.avatar_store import AlmacenAvatares
+from app.resultados import guardar_resultado
 
 HOST = os.getenv("SOCKET_HOST", "0.0.0.0")
 PORT = int(os.getenv("SOCKET_PORT", "9000"))
@@ -236,7 +237,7 @@ def servir(
     validar_sesion: Callable[[Any], str | None] = validar_sesion_falsa,
 ) -> None:
     """Acepta conexiones y crea un hilo por cliente sobre el mismo estado."""
-    estado_juego = EstadoJuego()
+    estado_juego = EstadoJuego(guardar_resultado=guardar_resultado)
     configuracion = AlmacenConfiguracion()
     detener_simulacion = threading.Event()
     avatares = AlmacenAvatares()

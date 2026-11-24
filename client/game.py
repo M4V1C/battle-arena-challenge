@@ -1,8 +1,5 @@
 # Ventana Pygame y controles locales para los dos jugadores.
 
-from importlib import import_module
-from pathlib import Path
-import sys
 
 import pygame
 
@@ -72,49 +69,6 @@ class Juego:
         self._avatares = RepositorioAvatares().obtener()
         self._renderizador_avatares = RenderizadorAvatares()
 
-    def _registrar_resultado(self) -> None:
-        """Guarda las estadísticas de ambos jugadores al terminar la partida."""
-    
-        ruta_usuarios = Path(__file__).resolve().parent.parent / "Epica 01-Gestion de usuarios"
-        if str(ruta_usuarios) not in sys.path:
-            sys.path.insert(0, str(ruta_usuarios))
-        registrar_partida = import_module("perfil_datos").registrar_partida
-    
-        jugadores = self._estado.get("players", {})
-        partida = self._estado.get("match", {})
-
-        rojo = jugadores.get("red", {})
-        azul = jugadores.get("blue", {})
-
-        puntos_rojo = int(rojo.get("score", 0))
-        puntos_azul = int(azul.get("score", 0))
-        duracion = int(partida.get("elapsed", 0))
-
-        # No registrar resultados sin dos cuentas autenticadas.
-        if not self._nombres["red"] or not self._nombres["blue"]:
-            return
-
-        # El sistema de perfiles todavía no admite empates.
-        if puntos_rojo == puntos_azul:
-            return
-
-        resultado_rojo = "victoria" if puntos_rojo > puntos_azul else "derrota"
-        resultado_azul = "victoria" if puntos_azul > puntos_rojo else "derrota"
-
-        registrar_partida(
-            self._nombres["red"],
-            resultado_rojo,
-            puntos_rojo,
-            duracion,
-        )
-
-        registrar_partida(
-            self._nombres["blue"],
-            resultado_azul,
-            puntos_azul,
-            duracion,
-        )
-        
     # Ejecuta el ciclo principal de Pygame y gestiona la comunicación con el servidor.
     def ejecutar(self) -> bool:
         from screens import VOLVER, dibujar_volver
@@ -171,8 +125,6 @@ class Juego:
                             [aviso["id"] for aviso in respuesta.get("notifications", [])]
                         )
                         if respuesta.get("match", {}).get("finished"):
-                            self._registrar_resultado()
-
                             pantalla_victoria = PantallaVictoria(estado=self._estado,avatares=self._avatares, nombres=self._nombres,)
                             return pantalla_victoria.ejecutar()
                     elif respuesta.get("type") == "error":
