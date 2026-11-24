@@ -3,6 +3,11 @@ const dashboard = document.querySelector("#dashboard");
 const loginForm = document.querySelector("#loginForm");
 const cerrarSesion = document.querySelector("#cerrarSesion");
 const loginMensaje = document.querySelector("#loginMensaje");
+const datosMensaje = document.querySelector("#datosMensaje");
+
+const SIN_CONEXION = "No se pudo conectar con el servidor. Revisa la conexion e intenta de nuevo.";
+const DATOS_INVALIDOS = "El servidor respondio con datos no validos. Intenta de nuevo mas tarde.";
+const SESION_EXPIRADA = "Tu sesion expiro. Inicia sesion de nuevo.";
 
 let usuarioActual = null;
 let sondeoPartida = null;
@@ -14,14 +19,30 @@ const NOMBRES_EVENTO = {
   speed_boost: "Impulso", guardian_truce: "Tregua",
 };
 
+class ErrorSolicitud extends Error {
+  constructor(mensaje, estado) {
+    super(mensaje);
+    this.estado = estado;
+  }
+}
+
 async function solicitar(ruta, opciones = {}) {
   const cabeceras = {...(opciones.headers || {})};
   const token = localStorage.getItem("token");
   if (token) cabeceras.Authorization = `Bearer ${token}`;
-  const respuesta = await fetch(ruta, {...opciones, headers: cabeceras});
-  let datos = {};
+  let respuesta;
+  try {
+    respuesta = await fetch(ruta, {...opciones, headers: cabeceras});
+  } catch (_) {
+    throw new ErrorSolicitud(SIN_CONEXION, 0);
+  }
+  let datos = null;
   try { datos = await respuesta.json(); } catch (_) {}
-  if (!respuesta.ok) throw new Error(datos.detail || "Solicitud rechazada");
+  if (!respuesta.ok) {
+    const detalle = typeof datos?.detail === "string" ? datos.detail : "Solicitud rechazada";
+    throw new ErrorSolicitud(detalle, respuesta.status);
+  }
+  if (datos === null || typeof datos !== "object") throw new ErrorSolicitud(DATOS_INVALIDOS, respuesta.status);
   return datos;
 }
 
@@ -122,13 +143,29 @@ function detenerSondeoPartida() {
 
 async function cargarDatos() {
   const usuarioCodificado = encodeURIComponent(usuarioActual);
+  mostrarErrorDatos("");
+  try {
+    const [perfil, ranking, historial] = await Promise.all([
+      solicitar(`/usuarios/${usuarioCodificado}/perfil`),
+      solicitar("/ranking"),
+      solicitar(`/usuarios/${usuarioCodificado}/historial`),
+    ]);
+    mostrarDatos(perfil, ranking, historial);
+  } catch (error) {
+    if (error.estado === 401) {
+      terminarSesion(SESION_EXPIRADA);
+      return;
+    }
+    mostrarErrorDatos(error instanceof ErrorSolicitud ? error.message : DATOS_INVALIDOS);
+  }
+}
 
-  const [perfil, ranking, historial] = await Promise.all([
-    solicitar(`/usuarios/${usuarioCodificado}/perfil`),
-    solicitar("/ranking"),
-    solicitar(`/usuarios/${usuarioCodificado}/historial`),
-  ]);
+function mostrarErrorDatos(texto) {
+  datosMensaje.textContent = texto;
+  datosMensaje.classList.toggle("oculto", !texto);
+}
 
+function mostrarDatos(perfil, ranking, historial) {
   const estadisticas = perfil.estadisticas;
   document.querySelector("#posicionJugador").textContent = perfil.posicion ? `Posicion #${perfil.posicion}` : "Sin ranking";
   document.querySelector("#partidas").textContent = estadisticas.partidas_jugadas;
@@ -180,7 +217,9 @@ loginForm.addEventListener("submit", async evento => {
   }
 });
 
-cerrarSesion.addEventListener("click", () => {
+cerrarSesion.addEventListener("click", () => terminarSesion());
+
+function terminarSesion(mensaje = "") {
   localStorage.removeItem("token");
   detenerSondeoPartida();
   usuarioActual = null;
@@ -188,7 +227,8 @@ cerrarSesion.addEventListener("click", () => {
   cerrarSesion.classList.add("oculto");
   loginPanel.classList.remove("oculto");
   loginForm.reset();
-});
+  loginMensaje.textContent = mensaje;
+}
 
 document.querySelector("#googleLogin").addEventListener("click", async () => {
   loginMensaje.textContent = "";
@@ -237,9 +277,14 @@ async function restaurarSesion() {
       body: JSON.stringify({token}),
     });
     mostrarDashboard(sesion.usuario);
-  } catch (_) {
+  } catch (error) {
+    if (error.estado !== 401) {
+      // Sin respuesta valida no se sabe si el token sigue vigente: se conserva.
+      loginMensaje.textContent = error.message;
+      return;
+    }
     localStorage.removeItem("token");
-    loginMensaje.textContent = "Tu sesion expiro. Inicia sesion de nuevo.";
+    loginMensaje.textContent = SESION_EXPIRADA;
   }
 }
 
