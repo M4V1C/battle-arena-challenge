@@ -1,4 +1,4 @@
-"""Reglas de puntuación y extracción, leídas de server/data/reglas.json."""
+"""Reglas de extracción y guardianes, leídas de server/data/reglas.json."""
 
 import json
 import math
@@ -15,6 +15,8 @@ class Reglas:
     puntos_por_energia: int
     # Segundos de operación continua del reactor entre una extracción y la siguiente.
     intervalo_extraccion: float
+    duracion_aturdimiento: float = 2.0
+    velocidad_guardian: float = 120.0
 
 
 def validar_reglas(datos: Any) -> Reglas:
@@ -23,6 +25,8 @@ def validar_reglas(datos: Any) -> Reglas:
         raise ValueError("Las reglas deben ser un objeto JSON.")
     puntos = datos.get("puntos_por_energia")
     intervalo = datos.get("intervalo_extraccion")
+    aturdimiento = datos.get("duracion_aturdimiento", 2.0)
+    velocidad_guardian = datos.get("velocidad_guardian", 120.0)
     if isinstance(puntos, bool) or not isinstance(puntos, int) or puntos < 1:
         raise ValueError("puntos_por_energia debe ser un entero mayor que cero.")
     if (
@@ -32,7 +36,16 @@ def validar_reglas(datos: Any) -> Reglas:
         or intervalo <= 0
     ):
         raise ValueError("intervalo_extraccion debe ser un número finito mayor que cero.")
-    return Reglas(puntos_por_energia=puntos, intervalo_extraccion=float(intervalo))
+    for nombre, valor in (("duracion_aturdimiento", aturdimiento),
+                          ("velocidad_guardian", velocidad_guardian)):
+        if isinstance(valor, bool) or not isinstance(valor, (int, float)) or not math.isfinite(valor) or valor <= 0:
+            raise ValueError(f"{nombre} debe ser un número finito mayor que cero.")
+    return Reglas(
+        puntos_por_energia=puntos,
+        intervalo_extraccion=float(intervalo),
+        duracion_aturdimiento=float(aturdimiento),
+        velocidad_guardian=float(velocidad_guardian),
+    )
 
 
 def cargar_reglas(ruta: Path = ARCHIVO_REGLAS) -> Reglas:

@@ -7,6 +7,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.game_config import CONFIGURACION_INICIAL, validar_configuracion
+from app.guardianes import Guardian, TAMANO_GUARDIAN, guardianes_iniciales
 from app.reglas import Reglas, cargar_reglas
 
 ACCIONES = ("shoot", "interact")
@@ -41,6 +42,7 @@ class Jugador:
     puntos: int = 0
     bloqueo_restante: float = 0.0
     lentitud_restante: float = 0.0
+    aturdimiento_restante: float = 0.0
     trampa_actual: str | None = None
     trampas_ocupadas: set[str] = field(default_factory=set)
     # Ãšltimo contador de pulsaciones procesado por acciÃ³n.
@@ -120,6 +122,7 @@ class EstadoJuego:
         puertas: tuple[Puerta, ...] | None = None,
         trampas: tuple[Trampa, ...] | None = None,
         semilla: int | None = None,
+        guardianes: tuple[Guardian, ...] | None = None,
     ):
         self._reglas = reglas if reglas is not None else cargar_reglas()
 
@@ -129,6 +132,12 @@ class EstadoJuego:
         self._puertas = tuple(PUERTAS_INICIALES if obstaculos is MAPA_INICIAL else ()) if puertas is None else tuple(puertas)
         self._trampas_fijas = None if trampas is None and obstaculos is MAPA_INICIAL else tuple(trampas or ())
         self._azar = random.Random(semilla)
+        self._guardianes_configurados = (
+            tuple(guardianes_iniciales(self.ANCHO, self.ALTO))
+            if guardianes is None and obstaculos is MAPA_INICIAL
+            else tuple(guardianes or ())
+        )
+        self._guardianes: list[Guardian] = []    
         self._puertas_abiertas: dict[str, bool] = {}
         self._trampas: tuple[Trampa, ...] = ()
         self._reactor = Obstaculo(
@@ -290,6 +299,7 @@ class EstadoJuego:
         self._tiempo_reactor = 0.0
         self._puertas_abiertas = {puerta.id: False for puerta in self._puertas}
         self._trampas = self._generar_trampas() if self._trampas_fijas is None else self._trampas_fijas
+        self._guardianes = [Guardian(g.id, g.x, g.y) for g in self._guardianes_configurados]
         anteriores = self._jugadores
         self._jugadores = {
             "red": Jugador(100, 100, dir_x=1.0),
@@ -444,6 +454,9 @@ class EstadoJuego:
     # Ejecuta la acciÃ³n correspondiente a un jugador, como interactuar con el reactor o disparar.
     def _ejecutar_accion(self, nombre: str, accion: str) -> None:
         jugador = self._jugadores[nombre]
+        if jugador.aturdimiento_restante > 0:
+            self._rechazar(nombre, "player_stunned", "No puedes actuar mientras estás aturdido.")
+            return        
         if jugador.bloqueo_restante > 0:
             self._rechazar(nombre, "player_trapped", "No puedes actuar mientras estás atrapado.")
             return
@@ -540,6 +553,7 @@ class EstadoJuego:
                 tiempo_bloqueado = min(delta_t, jugador.bloqueo_restante)
                 tiempo_lento = jugador.lentitud_restante
                 jugador.bloqueo_restante = max(0.0, jugador.bloqueo_restante - delta_t)
+                jugador.aturdimiento_restante = max(0.0, jugador.aturdimiento_restante - delta_t)               
                 jugador.lentitud_restante = max(0.0, jugador.lentitud_restante - delta_t)
                 if jugador.bloqueo_restante == 0:
                     jugador.trampa_actual = None
@@ -547,6 +561,7 @@ class EstadoJuego:
                     intensidad = math.hypot(dx, dy) * (0.5 if tiempo_lento > 0 else 1.0)
                     self._mover_girando(jugador, intensidad, delta_t - tiempo_bloqueado)
                 self._activar_trampas(jugador)
+            self._avanzar_guardianes(delta_t)
             for jugador in self._jugadores.values():
                 jugador.tiempo_interaccion = max(0.0, jugador.tiempo_interaccion - delta_t)
             if self._operador_reactor is not None:
@@ -630,6 +645,60 @@ class EstadoJuego:
                 break
             self._mover_x(jugador, jugador.dir_x * distancia / pasos)
             self._mover_y(jugador, jugador.dir_y * distancia / pasos)
+
+    def _avanzar_guardianes(self, delta_t: float) -> None:
+        """Persiguen al jugador libre más cercano y aturden al tocar un avatar."""
+        tamano = TAMANO_GUARDIAN
+        velocidad = self._reglas.velocidad_guardian
+        pasos = max(1, math.ceil(velocidad * delta_t / (tamano / 2)))
+        paso_t = delta_t / pasos
+        for guardian in self._guardianes:
+            for _ in range(pasos):
+                elegibles = [
+                    (nombre, jugador) for nombre, jugador in self._jugadores.items()
+                    if jugador.bloqueo_restante <= 0
+                ]
+                if elegibles:
+                    nombre, objetivo = min(
+                        elegibles,
+                        key=lambda par: math.dist(
+                            (guardian.x, guardian.y), (par[1].x, par[1].y)
+                        ),
+                    )
+                    guardian.objetivo = nombre
+                    dx = objetivo.x - guardian.x
+                    dy = objetivo.y - guardian.y
+                    distancia = math.hypot(dx, dy)
+                    if distancia > 0 and paso_t > 0:
+                        avance = min(velocidad * paso_t, distancia)
+                        siguiente_x = min(max(guardian.x + dx / distancia * avance, 0), self.ANCHO - tamano)
+                        if not any(o.colisiona(siguiente_x, guardian.y, tamano)
+                                   for o in self._solidos_actuales()):
+                            guardian.x = siguiente_x
+                        siguiente_y = min(max(guardian.y + dy / distancia * avance, 0), self.ALTO - tamano)
+                        if not any(o.colisiona(guardian.x, siguiente_y, tamano)
+                                   for o in self._solidos_actuales()):
+                            guardian.y = siguiente_y
+                else:
+                    guardian.objetivo = None
+
+                contactos = {
+                    nombre for nombre, jugador in self._jugadores.items()
+                    if Obstaculo(jugador.x, jugador.y, self.TAMANO_JUGADOR,
+                                 self.TAMANO_JUGADOR).colisiona(guardian.x, guardian.y, tamano)
+                }
+                for nombre in contactos - guardian.contactos:
+                    jugador = self._jugadores[nombre]
+                    jugador.bloqueo_restante += self._reglas.duracion_aturdimiento
+                    jugador.aturdimiento_restante = jugador.bloqueo_restante
+                    if self._operador_reactor == nombre:
+                        self._operador_reactor = None
+                        self._tiempo_reactor = 0.0
+                    self._agregar_notificacion(
+                        "guardian_hit", f"{nombre} fue aturdido por un guardián.",
+                        "danger", codigo="guardian_hit"
+                    )
+                guardian.contactos = contactos
 
     # Avanza un proyectil y devuelve False si chocÃ³ con algo o saliÃ³ del mapa.
     def _mover_proyectil(self, proyectil: Proyectil, delta_t: float) -> bool:
@@ -727,6 +796,10 @@ class EstadoJuego:
                     "move_y": jugador.mov_y,
                     "interacting": jugador.tiempo_interaccion > 0,
                     "frozen": jugador.bloqueo_restante > 0,
+                    "status": "stunned" if jugador.aturdimiento_restante > 0 else (
+                        "frozen" if jugador.bloqueo_restante > 0 else "normal"
+                    ),
+                    "stun_remaining": jugador.aturdimiento_restante,
                     "trap": jugador.trampa_actual,
                     "trap_remaining": jugador.bloqueo_restante,
                     "inverted": jugador.trampa_actual == "inversion",
@@ -766,6 +839,11 @@ class EstadoJuego:
                  "width": t.zona.ancho, "height": t.zona.alto,
                  "duration": t.duracion}
                 for t in self._trampas
+            ],
+            "guardians": [
+                {"id": g.id, "x": g.x, "y": g.y, "size": TAMANO_GUARDIAN,
+                 "target": g.objetivo}
+                for g in self._guardianes
             ],
             "notifications": list(self._notificaciones),   # nuevo
         }

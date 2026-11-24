@@ -53,6 +53,8 @@ def avisos_nuevos(estado: dict, ultimo_id: int, puesto: str) -> tuple[list[dict]
 
 
 def etiqueta_jugador(jugador: dict) -> str:
+    if jugador.get("status") == "stunned":
+        return f"aturdido {jugador.get('stun_remaining', 0):.1f}s"
     if jugador.get("frozen"):
         return f"trampa {jugador.get('trap')} {jugador.get('trap_remaining', 0):.1f}s"
     if jugador.get("slowed"):
@@ -108,6 +110,19 @@ def dibujar(pygame, pantalla, fuente, estado: dict, puesto: str, avisos: list) -
         pygame.draw.rect(pantalla, colores_trampa.get(trampa["type"], (110, 110, 125)), caja)
         marca = fuente.render(trampa["type"][0].upper(), True, (255, 255, 255))
         pantalla.blit(marca, marca.get_rect(center=(caja[0] + caja[2] // 2, caja[1] + caja[3] // 2)))
+    for guardian in estado.get("guardians", []):
+        cx = px(guardian["x"] + guardian["size"] / 2)
+        cy = BARRA + px(guardian["y"] + guardian["size"] / 2)
+        lado = max(10, px(guardian["size"] * 0.65))
+        frente = pygame.Rect(cx - lado // 2, cy - lado // 2, lado, lado)
+        pygame.draw.rect(pantalla, (115, 65, 175), frente)
+        pygame.draw.rect(pantalla, (235, 190, 90), frente, 2)
+        for signo in (-1, 1):
+            codo_x = cx + signo * (lado // 2 + 7)
+            pygame.draw.lines(pantalla, (235, 190, 90), False,
+                              [(cx + signo * lado // 2, cy - 3),
+                               (codo_x, cy - 3), (codo_x, cy + 6)], 2)
+            pygame.draw.circle(pantalla, (245, 215, 120), (codo_x, cy + 9), 4)
     centro = (px(reactor["x"] + reactor["size"] / 2), BARRA + px(reactor["y"] + reactor["size"] / 2))
     color_anillo = COLORES.get(operador, (250, 210, 40))
     pygame.draw.circle(pantalla, color_anillo, centro, px(reactor["ring_radius"]), 2)

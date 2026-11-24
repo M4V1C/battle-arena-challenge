@@ -46,7 +46,8 @@ def test_partida_termina_en_minutos_configurados(minutos):
 @pytest.mark.parametrize("objetivo", [1, 20, 25, 30])
 @pytest.mark.parametrize("nombre", ["red", "blue"])
 def test_cualquier_jugador_puede_terminar_por_puntos(objetivo, nombre):
-    juego = EstadoJuego()
+# Esta prueba aísla la extracción; los guardianes la interrumpen por diseño.    
+    juego = EstadoJuego(guardianes=())
     juego.iniciar_partida({"condition": "points", "value": objetivo})
     juego._jugadores[nombre].x, juego._jugadores[nombre].y = 740, 430
     entradas = {jugador: {"x": 0, "y": 0, "interact": int(jugador == nombre)} for jugador in ("red", "blue")}

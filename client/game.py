@@ -13,6 +13,7 @@ from avatar_repository import RepositorioAvatares
 from avatar_renderer import RenderizadorAvatares
 from victory_screen import PantallaVictoria
 from hud_notifications import NotificacionesHUD
+from guardian_renderer import dibujar_guardian
 
 ANCHO, ALTO = 1600, 900             # Dimensiones de la ventana de juego
 TAMANO_JUGADOR = 40                 # Tamaño visual de cada jugador en la ventana
@@ -207,7 +208,8 @@ class Juego:
         """Devuelve el texto y color correspondientes al estado del jugador."""
 
         estado = jugador.get("status")
-
+        if estado == "stunned":
+            return f"Aturdido ({jugador.get('stun_remaining', 0):.1f}s)", COLOR_INMOVILIZADO
         if jugador.get("frozen") and jugador.get("trap"):
             return f"Atrapado: {jugador['trap']} ({jugador.get('trap_remaining', 0):.1f}s)", COLOR_INMOVILIZADO
         if estado in ("stunned", "frozen") or jugador.get("frozen"):
@@ -271,6 +273,12 @@ class Juego:
             pygame.draw.rect(pantalla, COLOR_TEXTO, rectangulo, 2)
             letra = fuente.render(LETRAS_TRAMPA.get(trampa["type"], "?"), True, COLOR_TEXTO)
             pantalla.blit(letra, letra.get_rect(center=rectangulo.center))
+
+
+        for guardian in self._estado.get("guardians", []):
+            tamano = guardian.get("size", 40)
+            centro = (guardian["x"] + tamano / 2, guardian["y"] + tamano / 2)
+            dibujar_guardian(pantalla, centro, tamano)
 
         colores = {"red": COLOR_ROJO, "blue": COLOR_AZUL}
         reactor = self._estado.get("reactor")
