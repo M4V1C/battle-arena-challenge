@@ -70,7 +70,17 @@ def test_historial_web_muestra_la_fecha_de_cada_partida():
     script = (modulo.WEB_DIR / "app.js").read_text(encoding="utf-8")
 
     assert "<th>Fecha</th>" in html
-    assert "fechaLegible(partida.fecha)" in script
+    assert "celda(fechaLegible(partida.fecha))" in script
+
+
+def test_web_no_inserta_datos_como_html():
+    import app.main as modulo
+
+    script = (modulo.WEB_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "innerHTML" not in script
+    assert "insertAdjacentHTML" not in script
+    assert "td.textContent = String(valor)" in script
 
 
 def test_web_envia_token_y_no_confia_en_el_usuario_guardado():

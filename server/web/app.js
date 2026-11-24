@@ -30,6 +30,27 @@ function fechaLegible(iso) {
   return fecha.toLocaleString("es-CR", {dateStyle: "short", timeStyle: "short"});
 }
 
+// Los datos del servidor se insertan como texto, nunca como HTML.
+function celda(valor, clase = "") {
+  const td = document.createElement("td");
+  td.textContent = String(valor);
+  if (clase) td.className = clase;
+  return td;
+}
+
+function llenarTabla(cuerpo, filas, columnas, textoVacio) {
+  if (!filas.length) {
+    const vacia = celda(textoVacio);
+    vacia.colSpan = columnas;
+    filas = [[vacia]];
+  }
+  cuerpo.replaceChildren(...filas.map(celdas => {
+    const fila = document.createElement("tr");
+    fila.append(...celdas);
+    return fila;
+  }));
+}
+
 function mostrarDashboard(nombre) {
   usuarioActual = nombre;
   loginPanel.classList.add("oculto");
@@ -56,27 +77,21 @@ async function cargarDatos() {
   document.querySelector("#mejor").textContent = estadisticas.mejor_puntaje;
 
   const historialBody = document.querySelector("#historialBody");
-  historialBody.innerHTML = historial.historial.length
-    ? historial.historial.map(partida => `
-      <tr>
-        <td>${fechaLegible(partida.fecha)}</td>
-        <td>${partida.match_id.slice(0, 8)}</td>
-        <td class="${partida.resultado}">${partida.resultado}</td>
-        <td>${partida.score}</td>
-        <td>${duracion(partida.elapsed)}</td>
-      </tr>`).join("")
-    : `<tr><td colspan="5">Todavia no hay partidas.</td></tr>`;
+  llenarTabla(historialBody, historial.historial.map(partida => [
+    celda(fechaLegible(partida.fecha)),
+    celda(String(partida.match_id).slice(0, 8)),
+    celda(partida.resultado, partida.resultado === "victoria" ? "victoria" : "derrota"),
+    celda(partida.score),
+    celda(duracion(partida.elapsed)),
+  ]), 5, "Todavia no hay partidas.");
 
   const rankingBody = document.querySelector("#rankingBody");
-  rankingBody.innerHTML = ranking.ranking.length
-    ? ranking.ranking.map((fila, indice) => `
-      <tr>
-        <td>${indice + 1}</td>
-        <td>${fila.usuario}</td>
-        <td>${fila.puntaje_total}</td>
-        <td>${fila.victorias}</td>
-      </tr>`).join("")
-    : `<tr><td colspan="4">Sin datos.</td></tr>`;
+  llenarTabla(rankingBody, ranking.ranking.map((fila, indice) => [
+    celda(indice + 1),
+    celda(fila.usuario),
+    celda(fila.puntaje_total),
+    celda(fila.victorias),
+  ]), 4, "Sin datos.");
 }
 
 loginForm.addEventListener("submit", async evento => {
