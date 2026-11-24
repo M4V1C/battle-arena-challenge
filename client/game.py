@@ -9,6 +9,7 @@ import pygame
 from controller import ControlSDL
 from keybindings import cargar_keybindings
 from network import ConexionServidor
+from local_match_network import ConexionPartidaLocal
 from avatar_repository import RepositorioAvatares
 from avatar_renderer import RenderizadorAvatares
 from victory_screen import PantallaVictoria
@@ -43,8 +44,13 @@ INTERVALO_ENTRADAS = 1 / 60         # Intervalo de tiempo entre envíos de entra
 class Juego:
 
     # Inicializa la conexión con el servidor y el estado visual del juego.
-    def __init__(self,host: str,port: int,jugador_rojo: str | None = None,jugador_azul: str | None = None,):
-        self._conexion = ConexionServidor(host, port)
+    def __init__(self,host: str,port: int,jugador_rojo: str | None = None,jugador_azul: str | None = None,
+                 escenario: str = "arena_clasica"):
+        self._conexion = (
+            ConexionPartidaLocal(host, port,
+                                 {"red": jugador_rojo, "blue": jugador_azul}, escenario)
+            if jugador_rojo and jugador_azul else ConexionServidor(host, port)
+        )
         self._nombres = {"red": jugador_rojo or "Rojo","blue": jugador_azul or "Azul",
 }
         self._estado = {
@@ -262,7 +268,17 @@ class Juego:
 
     # Dibuja la arena y los jugadores según el estado actual.
     def _dibujar(self, pantalla: pygame.Surface, fuente: pygame.font.Font) -> None:
-        pantalla.fill(FONDO)
+        datos_escenario = self._estado.get("scenario", {})
+        tema = datos_escenario.get("theme", {})
+        def color(clave, predeterminado):
+            return tuple(tema.get(clave, predeterminado))
+
+        zonas = datos_escenario.get("walkable", [])
+        pantalla.fill((9, 13, 20) if zonas else color("background", FONDO))
+        for zona in zonas:
+            pygame.draw.rect(pantalla, color("background", FONDO),
+                             pygame.Rect(int(zona["x"]), int(zona["y"]),
+                                         int(zona["width"]), int(zona["height"])))
         for obstaculo in self._estado.get("obstacles", []):
             rectangulo = pygame.Rect(
                 int(obstaculo["x"]),
@@ -270,15 +286,15 @@ class Juego:
                 int(obstaculo["width"]),
                 int(obstaculo["height"]),
             )
-            pygame.draw.rect(pantalla, COLOR_OBSTACULO, rectangulo)
+            pygame.draw.rect(pantalla, color("obstacle", COLOR_OBSTACULO), rectangulo)
 
         for puerta in self._estado.get("doors", []):
             rectangulo = pygame.Rect(int(puerta["x"]), int(puerta["y"]),
                                     int(puerta["width"]), int(puerta["height"]))
             if puerta["open"]:
-                pygame.draw.rect(pantalla, COLOR_PUERTA_ABIERTA, rectangulo, 3)
+                pygame.draw.rect(pantalla, color("door_open", COLOR_PUERTA_ABIERTA), rectangulo, 3)
             else:
-                pygame.draw.rect(pantalla, COLOR_PUERTA_CERRADA, rectangulo)
+                pygame.draw.rect(pantalla, color("door_closed", COLOR_PUERTA_CERRADA), rectangulo)
 
         for trampa in self._estado.get("traps", []):
             rectangulo = pygame.Rect(int(trampa["x"]), int(trampa["y"]),
@@ -315,7 +331,7 @@ class Juego:
             rect_reactor = pygame.Rect(int(reactor["x"]), int(reactor["y"]), tamano, tamano)
             # El anillo toma el color del jugador que lo está operando.
             color_anillo = (COLOR_SOBRECARGA if reactor.get("status") == "overload"
-                            else colores.get(reactor.get("operator"), COLOR_REACTOR))
+                            else colores.get(reactor.get("operator"), color("reactor", COLOR_REACTOR)))
             pygame.draw.circle(
                 pantalla, color_anillo, rect_reactor.center, int(reactor["ring_radius"]), 2
             )
@@ -403,6 +419,10 @@ class Juego:
             indicador_reactor,
             (ANCHO // 2 - indicador_reactor.get_width() // 2, 75),
         )
+        if datos_escenario.get("name"):
+            etiqueta_escenario = fuente.render(datos_escenario["name"], True, COLOR_TEXTO)
+            pantalla.blit(etiqueta_escenario,
+                          etiqueta_escenario.get_rect(midtop=(ANCHO // 2, 105)))
 
         etiquetas = {"energy": "Energía extra", "extra_guardians": "+5 guardianes",
                      "overload": "Sobrecarga", "speed_boost": "Impulso +50 %",

@@ -78,9 +78,8 @@ def _solicitud_de_puesto(
         return _rechazo("not_joined", "Primero debes unirte a la partida con join.")
     try:
         if tipo == "start":
-            # TODO(US-23): leer mensaje.get("scenario") y cargar ese mapa.
             ajustes = configuracion.obtener() if configuracion else CONFIGURACION_INICIAL
-            return estado_juego.iniciar_por(puesto, ajustes)
+            return estado_juego.iniciar_por(puesto, ajustes, mensaje.get("scenario"))
         if mensaje.get("player", mensaje.get("slot", puesto)) != puesto:
             raise Rechazo(
                 "wrong_slot", "Solo puedes enviar las entradas de tu propio puesto."

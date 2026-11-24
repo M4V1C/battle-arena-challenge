@@ -1,0 +1,34 @@
+{
+  "id": "arena_clasica",
+  "name": "Arena clásica",
+  "width": 1600,
+  "height": 900,
+  "walkable": [{"x": 0, "y": 0, "width": 1600, "height": 900}],
+  "spawns": {"red": {"x": 100, "y": 100}, "blue": {"x": 1460, "y": 760}},
+  "reactor": {"x": 780, "y": 430, "size": 40},
+  "obstacles": [
+    {"x": 300, "y": 250, "width": 200, "height": 40},
+    {"x": 900, "y": 150, "width": 40, "height": 300},
+    {"x": 1200, "y": 500, "width": 250, "height": 40},
+    {"x": 400, "y": 600, "width": 40, "height": 200}
+  ],
+  "doors": [{"id": "puerta_central", "x": 600, "y": 400, "width": 40, "height": 120}],
+  "guardians": [
+    {"id": "noroeste", "x": 20, "y": 20},
+    {"id": "noreste", "x": 1540, "y": 20},
+    {"id": "suroeste", "x": 20, "y": 840},
+    {"id": "sureste", "x": 1540, "y": 840}
+  ],
+  "traps": [
+    {"type": "jaula", "duration": 2.5},
+    {"type": "arenas", "duration": 1.75},
+    {"type": "inversion", "duration": 1.25}
+  ],
+  "theme": {
+    "background": [30, 30, 40],
+    "obstacle": [110, 110, 125],
+    "door_closed": [230, 145, 65],
+    "door_open": [90, 215, 130],
+    "reactor": [250, 210, 40]
+  }
+}

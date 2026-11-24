@@ -80,7 +80,17 @@ def dibujar(pygame, pantalla, fuente, estado: dict, puesto: str, avisos: list) -
     def px(valor):
         return int(valor * ESCALA)
 
-    pantalla.fill((30, 30, 40))
+    escenario = estado.get("scenario", {})
+    tema = escenario.get("theme", {})
+    def color(clave, predeterminado):
+        return tuple(tema.get(clave, predeterminado))
+
+    zonas = escenario.get("walkable", [])
+    pantalla.fill((9, 13, 20) if zonas else color("background", (30, 30, 40)))
+    for zona in zonas:
+        pygame.draw.rect(pantalla, color("background", (30, 30, 40)),
+                         (px(zona["x"]), BARRA + px(zona["y"]),
+                          px(zona["width"]), px(zona["height"])))
     jugadores = estado["players"]
     for i, nombre in enumerate(("red", "blue")):
         j = jugadores[nombre]
@@ -94,6 +104,8 @@ def dibujar(pygame, pantalla, fuente, estado: dict, puesto: str, avisos: list) -
     pantalla.blit(fuente.render(texto, True, (255, 85, 85) if reactor["status"] == "overload"
                               else (250, 210, 40)), (10, 34))
     pantalla.blit(fuente.render(linea_de_estado(estado), True, (240, 240, 240)), (10, 60))
+    if escenario.get("name"):
+        pantalla.blit(fuente.render(escenario["name"], True, (240, 240, 240)), (400, 60))
     etiquetas = {"energy": "Energía extra", "extra_guardians": "+5 guardianes",
                  "overload": "Sobrecarga", "speed_boost": "Impulso +50 %",
                  "guardian_truce": "Tregua de guardianes"}
@@ -103,12 +115,13 @@ def dibujar(pygame, pantalla, fuente, estado: dict, puesto: str, avisos: list) -
         pantalla.blit(fuente.render(aviso, True, (90, 255, 230)), (550, 34 + 25 * i))
 
     for o in estado["obstacles"]:
-        pygame.draw.rect(pantalla, (110, 110, 125),
+        pygame.draw.rect(pantalla, color("obstacle", (110, 110, 125)),
                          (px(o["x"]), BARRA + px(o["y"]), px(o["width"]), px(o["height"])))
     for puerta in estado.get("doors", []):
         caja = (px(puerta["x"]), BARRA + px(puerta["y"]),
                 px(puerta["width"]), px(puerta["height"]))
-        pygame.draw.rect(pantalla, (90, 215, 130) if puerta["open"] else (230, 145, 65),
+        pygame.draw.rect(pantalla, color("door_open", (90, 215, 130)) if puerta["open"]
+                         else color("door_closed", (230, 145, 65)),
                          caja, 2 if puerta["open"] else 0)
     colores_trampa = {"jaula": (215, 75, 80), "arenas": (180, 145, 65),
                       "inversion": (145, 95, 220)}
@@ -143,7 +156,7 @@ def dibujar(pygame, pantalla, fuente, estado: dict, puesto: str, avisos: list) -
         pantalla.blit(marca, marca.get_rect(center=(cx, cy)))
     centro = (px(reactor["x"] + reactor["size"] / 2), BARRA + px(reactor["y"] + reactor["size"] / 2))
     color_anillo = ((255, 85, 85) if reactor["status"] == "overload"
-                    else COLORES.get(operador, (250, 210, 40)))
+                    else COLORES.get(operador, color("reactor", (250, 210, 40))))
     pygame.draw.circle(pantalla, color_anillo, centro, px(reactor["ring_radius"]), 2)
     pygame.draw.rect(pantalla, color_anillo,
                      (px(reactor["x"]), BARRA + px(reactor["y"]), px(reactor["size"]), px(reactor["size"])))
@@ -171,11 +184,12 @@ def dibujar(pygame, pantalla, fuente, estado: dict, puesto: str, avisos: list) -
 
 def main() -> int:
     if len(sys.argv) < 2:
-        print("Uso: python scripts/cliente_prueba.py <usuario> [host] [puerto]")
+        print("Uso: python scripts/cliente_prueba.py <usuario> [host] [puerto] [escenario]")
         return 1
     usuario = sys.argv[1]
     host = sys.argv[2] if len(sys.argv) > 2 else "127.0.0.1"
     puerto = int(sys.argv[3]) if len(sys.argv) > 3 else 9000
+    escenario = sys.argv[4] if len(sys.argv) > 4 else "arena_clasica"
 
     import pygame
 
@@ -215,7 +229,7 @@ def main() -> int:
                 bool(teclas[pygame.K_w] or teclas[pygame.K_UP]))
 
             if iniciar:
-                respuesta = conexion.enviar(type="start")
+                respuesta = conexion.enviar(type="start", scenario=escenario)
             else:
                 respuesta = conexion.enviar(type="input", x=x, y=y, **contadores)
             if respuesta.get("type") == "state":

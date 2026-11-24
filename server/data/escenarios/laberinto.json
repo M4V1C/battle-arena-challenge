@@ -1,0 +1,42 @@
+{
+  "id": "laberinto",
+  "name": "Laberinto",
+  "width": 1600,
+  "height": 900,
+  "walkable": [{"x": 0, "y": 0, "width": 1600, "height": 900}],
+  "spawns": {"red": {"x": 120, "y": 760}, "blue": {"x": 1440, "y": 100}},
+  "reactor": {"x": 780, "y": 360, "size": 40},
+  "obstacles": [
+    {"x": 300, "y": 180, "width": 40, "height": 240},
+    {"x": 300, "y": 540, "width": 40, "height": 180},
+    {"x": 620, "y": 0, "width": 40, "height": 300},
+    {"x": 620, "y": 420, "width": 40, "height": 300},
+    {"x": 960, "y": 180, "width": 40, "height": 300},
+    {"x": 960, "y": 600, "width": 40, "height": 300},
+    {"x": 1280, "y": 0, "width": 40, "height": 300},
+    {"x": 1280, "y": 420, "width": 40, "height": 300},
+    {"x": 720, "y": 650, "width": 200, "height": 40}
+  ],
+  "doors": [
+    {"id": "puerta_oeste", "x": 620, "y": 300, "width": 40, "height": 120},
+    {"id": "puerta_este", "x": 960, "y": 480, "width": 40, "height": 120}
+  ],
+  "guardians": [
+    {"id": "noroeste", "x": 20, "y": 20},
+    {"id": "noreste", "x": 1540, "y": 20},
+    {"id": "suroeste", "x": 20, "y": 840},
+    {"id": "sureste", "x": 1540, "y": 840}
+  ],
+  "traps": [
+    {"type": "jaula", "duration": 2.5},
+    {"type": "arenas", "duration": 1.75},
+    {"type": "inversion", "duration": 1.25}
+  ],
+  "theme": {
+    "background": [20, 38, 47],
+    "obstacle": [58, 111, 126],
+    "door_closed": [215, 90, 105],
+    "door_open": [85, 225, 195],
+    "reactor": [110, 235, 240]
+  }
+}

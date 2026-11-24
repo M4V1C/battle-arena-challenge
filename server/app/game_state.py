@@ -8,6 +8,7 @@ from typing import Any
 
 from app.game_config import CONFIGURACION_INICIAL, validar_configuracion
 from app.eventos import Evento, programar_eventos
+from app.escenarios import cargar_escenario
 from app.guardianes import Guardian, TAMANO_GUARDIAN, guardianes_iniciales
 from app.reglas import Reglas, cargar_reglas
 
@@ -135,6 +136,7 @@ class EstadoJuego:
         self._puertas = tuple(PUERTAS_INICIALES if obstaculos is MAPA_INICIAL else ()) if puertas is None else tuple(puertas)
         self._trampas_fijas = None if trampas is None and obstaculos is MAPA_INICIAL else tuple(trampas or ())
         self._azar = random.Random(semilla)
+        self._eventos_forzados = eventos
         if eventos is not None and not isinstance(eventos, bool):
             raise ValueError("eventos debe ser un booleano.")
         self._eventos_habilitados = (
@@ -147,6 +149,16 @@ class EstadoJuego:
             else tuple(guardianes or ())
         )
         self._guardianes: list[Guardian] = []    
+        self._escenario_id: str | None = None
+        self._escenario_nombre = "Arena personalizada"
+        self._tema = {"background": [30, 30, 40], "obstacle": [110, 110, 125],
+                      "door_closed": [230, 145, 65], "door_open": [90, 215, 130],
+                      "reactor": [250, 210, 40]}
+        self._zonas_transitables = (Obstaculo(0, 0, self.ANCHO, self.ALTO),)
+        self._posiciones_iniciales = {"red": (100, 100),
+                                      "blue": (self.ANCHO - self.TAMANO_JUGADOR - 100,
+                                               self.ALTO - self.TAMANO_JUGADOR - 100)}
+        self._tipos_trampa = TIPOS_TRAMPA
         self._puertas_abiertas: dict[str, bool] = {}
         self._trampas: tuple[Trampa, ...] = ()
         self._reactor = Obstaculo(
@@ -169,20 +181,60 @@ class EstadoJuego:
         self._notificaciones: list[dict[str, Any]] = []
         self._ultimo_id_notificacion = 0
         self._jugadores: dict[str, Jugador] = {}
+        if (obstaculos is MAPA_INICIAL and puertas is None and
+                trampas is None and guardianes is None):
+            self._aplicar_escenario(cargar_escenario("arena_clasica"))
         self._reiniciar_estado()
+
+    def _aplicar_escenario(self, datos: dict[str, Any]) -> None:
+        self._escenario_id = datos["id"]
+        self._escenario_nombre = datos["name"]
+        self._tema = datos["theme"]
+        self.ANCHO, self.ALTO = datos["width"], datos["height"]
+        self._zonas_transitables = tuple(
+            Obstaculo(z["x"], z["y"], z["width"], z["height"])
+            for z in datos["walkable"]
+        )
+        self._posiciones_iniciales = {
+            nombre: (zona["x"], zona["y"]) for nombre, zona in datos["spawns"].items()
+        }
+        self._obstaculos = tuple(Obstaculo(z["x"], z["y"], z["width"], z["height"])
+                                 for z in datos["obstacles"])
+        self._puertas = tuple(Puerta(z["id"], Obstaculo(z["x"], z["y"], z["width"], z["height"]))
+                              for z in datos["doors"])
+        self._reactor = Obstaculo(datos["reactor"]["x"], datos["reactor"]["y"],
+                                  self.TAMANO_JUGADOR, self.TAMANO_JUGADOR)
+        self._solidos = self._obstaculos + (self._reactor,)
+        self._trampas_fijas = None
+        self._tipos_trampa = tuple((t["type"], t["duration"]) for t in datos["traps"])
+        self._guardianes_configurados = tuple(
+            Guardian(g["id"], g["x"], g["y"]) for g in datos["guardians"]
+        )
+        self._eventos_habilitados = self._eventos_forzados is not False
+
+    def _es_transitable(self, x: float, y: float, tamano: float) -> bool:
+        return any(z.x <= x and z.y <= y and
+                   x + tamano <= z.x + z.ancho and
+                   y + tamano <= z.y + z.alto
+                   for z in self._zonas_transitables)
 
     # Reinicia la partida a su estado inicial.
     def reiniciar_partida(self) -> None:
         with self._bloqueo:
             self._reiniciar_estado()
 
-    def iniciar_partida(self, configuracion: Any) -> dict[str, Any]:
+    def iniciar_partida(self, configuracion: Any, escenario: str | None = None) -> dict[str, Any]:
         with self._bloqueo:
-            return self._iniciar_bloqueado(configuracion)
+            return self._iniciar_bloqueado(configuracion, escenario)
 
     # Arranca la partida; el llamador ya posee el bloqueo.
-    def _iniciar_bloqueado(self, configuracion: Any) -> dict[str, Any]:
+    def _iniciar_bloqueado(self, configuracion: Any, escenario: str | None = None) -> dict[str, Any]:
         configuracion = validar_configuracion(configuracion)
+        if escenario is not None:
+            if self._iniciada and not self._terminada and escenario != self._escenario_id:
+                raise Rechazo("match_in_progress", "No se puede cambiar el escenario durante la partida.")
+            datos = cargar_escenario(escenario)
+            self._aplicar_escenario(datos)
         self._configuracion = configuracion
         self._reiniciar_estado()
         if configuracion["condition"] == "time":
@@ -252,7 +304,8 @@ class EstadoJuego:
 
     # Inicia la partida a peticion de un puesto. Solo la inicia el anfitrion,
     # con los dos jugadores conectados y sin otra partida en curso.
-    def iniciar_por(self, puesto: str, configuracion: Any) -> dict[str, Any]:
+    def iniciar_por(self, puesto: str, configuracion: Any,
+                   escenario: str | None = None) -> dict[str, Any]:
         with self._bloqueo:
             if puesto != ANFITRION:
                 raise Rechazo("not_host", "Solo el anfitrión puede iniciar la partida.")
@@ -262,7 +315,7 @@ class EstadoJuego:
                 raise Rechazo(
                     "waiting_for_players", "Falta que se conecte el otro jugador."
                 )
-            return self._iniciar_bloqueado(configuracion)
+            return self._iniciar_bloqueado(configuracion, escenario)
 
     # Registra un rechazo para un puesto en state.notifications y devuelve el estado.
     def rechazar(self, puesto: str, codigo: str, motivo: str) -> dict[str, Any]:
@@ -318,10 +371,9 @@ class EstadoJuego:
         self._guardianes = [Guardian(g.id, g.x, g.y) for g in self._guardianes_configurados]
         anteriores = self._jugadores
         self._jugadores = {
-            "red": Jugador(100, 100, dir_x=1.0),
+            "red": Jugador(*self._posiciones_iniciales["red"], dir_x=1.0),
             "blue": Jugador(
-                self.ANCHO - self.TAMANO_JUGADOR - 100,
-                self.ALTO - self.TAMANO_JUGADOR - 100,
+                *self._posiciones_iniciales["blue"],
                 dir_x=-1.0,
             ),
         }
@@ -341,27 +393,32 @@ class EstadoJuego:
     def _generar_trampas(self) -> tuple[Trampa, ...]:
         """Elige tres celdas libres y alejadas de los puntos de aparición."""
         candidatos = []
-        for y in range(160, 761, 100):
-            for x in range(200, 1401, 100):
+        for y in range(160, self.ALTO - 139, 100):
+            for x in range(200, self.ANCHO - 199, 100):
                 zona = Obstaculo(x, y, 64, 64)
                 centro = (x + 32, y + 32)
+                if not self._es_transitable(x, y, 64):
+                    continue
                 if any(
                     Obstaculo(solido.x - 40, solido.y - 40,
                               solido.ancho + 80, solido.alto + 80).colisiona(x, y, 64)
                     for solido in self._solidos + tuple(p.zona for p in self._puertas)
                 ):
                     continue
-                if math.dist(centro, (800, 450)) < 155:
+                reactor_centro = (self._reactor.x + self._reactor.ancho / 2,
+                                  self._reactor.y + self._reactor.alto / 2)
+                if math.dist(centro, reactor_centro) < 155:
                     continue
-                if any(math.dist(centro, aparicion) < 170 for aparicion in ((120, 120), (1480, 780))):
+                if any(math.dist(centro, (p[0] + 20, p[1] + 20)) < 170
+                       for p in self._posiciones_iniciales.values()):
                     continue
                 candidatos.append(zona)
-        if len(candidatos) < len(TIPOS_TRAMPA):
+        if len(candidatos) < len(self._tipos_trampa):
             raise ValueError("El mapa no tiene espacio para tres trampas.")
-        zonas = self._azar.sample(candidatos, len(TIPOS_TRAMPA))
+        zonas = self._azar.sample(candidatos, len(self._tipos_trampa))
         return tuple(
             Trampa(f"trampa_{tipo}", tipo, zona, duracion)
-            for (tipo, duracion), zona in zip(TIPOS_TRAMPA, zonas)
+            for (tipo, duracion), zona in zip(self._tipos_trampa, zonas)
         )
 
     def _solidos_actuales(self) -> tuple[Obstaculo, ...]:
@@ -382,6 +439,8 @@ class EstadoJuego:
         for y in range(80, self.ALTO - tamano, 80):
             for x in range(80, self.ANCHO - tamano, 80):
                 zona = Obstaculo(x, y, tamano, tamano)
+                if not self._es_transitable(x, y, tamano):
+                    continue
                 if any(o.colisiona(x, y, tamano) for o in ocupados):
                     continue
                 if any(math.dist((x, y), (j.x, j.y)) < 120
@@ -784,12 +843,14 @@ class EstadoJuego:
                     if distancia > 0 and paso_t > 0:
                         avance = min(velocidad * paso_t, distancia)
                         siguiente_x = min(max(guardian.x + dx / distancia * avance, 0), self.ANCHO - tamano)
-                        if not any(o.colisiona(siguiente_x, guardian.y, tamano)
-                                   for o in self._solidos_actuales()):
+                        if (self._es_transitable(siguiente_x, guardian.y, tamano) and
+                                not any(o.colisiona(siguiente_x, guardian.y, tamano)
+                                        for o in self._solidos_actuales())):
                             guardian.x = siguiente_x
                         siguiente_y = min(max(guardian.y + dy / distancia * avance, 0), self.ALTO - tamano)
-                        if not any(o.colisiona(guardian.x, siguiente_y, tamano)
-                                   for o in self._solidos_actuales()):
+                        if (self._es_transitable(guardian.x, siguiente_y, tamano) and
+                                not any(o.colisiona(guardian.x, siguiente_y, tamano)
+                                        for o in self._solidos_actuales())):
                             guardian.y = siguiente_y
                 else:
                     guardian.objetivo = None
@@ -842,7 +903,10 @@ class EstadoJuego:
         if jugador.bloqueo_restante > 0:
             return
         tamano = self.TAMANO_JUGADOR
+        anterior = jugador.x
         jugador.x = min(max(jugador.x + delta, 0), self.ANCHO - tamano)
+        if not self._es_transitable(jugador.x, jugador.y, tamano):
+            jugador.x = anterior
         for obstaculo in self._solidos_actuales():
             if obstaculo.colisiona(jugador.x, jugador.y, tamano):
                 if delta > 0:
@@ -860,7 +924,10 @@ class EstadoJuego:
         if jugador.bloqueo_restante > 0:
             return
         tamano = self.TAMANO_JUGADOR
+        anterior = jugador.y
         jugador.y = min(max(jugador.y + delta, 0), self.ALTO - tamano)
+        if not self._es_transitable(jugador.x, jugador.y, tamano):
+            jugador.y = anterior
         for obstaculo in self._solidos_actuales():
             if obstaculo.colisiona(jugador.x, jugador.y, tamano):
                 if delta > 0:
@@ -896,6 +963,14 @@ class EstadoJuego:
             "height": self.ALTO,
             "player_size": self.TAMANO_JUGADOR,
             "projectile_size": self.TAMANO_PROYECTIL,
+            "scenario": {
+                "id": self._escenario_id, "name": self._escenario_nombre,
+                "theme": dict(self._tema),
+                "walkable": [
+                    {"x": z.x, "y": z.y, "width": z.ancho, "height": z.alto}
+                    for z in self._zonas_transitables
+                ],
+            },
             "match": {
                 "started": self._iniciada,        # nuevo
                 "finished": self._terminada,

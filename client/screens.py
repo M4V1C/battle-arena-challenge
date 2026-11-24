@@ -189,6 +189,7 @@ class Aplicacion:
                 self.port,
                 self.usuarios.jugador_rojo,
                 self.usuarios.jugador_azul,
+                escenario=self._selector_escenarios.seleccionado,
             ).ejecutar()
         except (OSError, ValueError) as error:
             self.error = str(error)
