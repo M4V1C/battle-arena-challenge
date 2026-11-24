@@ -7,7 +7,10 @@ const loginMensaje = document.querySelector("#loginMensaje");
 let usuarioActual = null;
 
 async function solicitar(ruta, opciones = {}) {
-  const respuesta = await fetch(ruta, opciones);
+  const cabeceras = {...(opciones.headers || {})};
+  const token = localStorage.getItem("token");
+  if (token) cabeceras.Authorization = `Bearer ${token}`;
+  const respuesta = await fetch(ruta, {...opciones, headers: cabeceras});
   let datos = {};
   try { datos = await respuesta.json(); } catch (_) {}
   if (!respuesta.ok) throw new Error(datos.detail || "Solicitud rechazada");
@@ -95,7 +98,6 @@ loginForm.addEventListener("submit", async evento => {
       return;
     }
 
-    localStorage.setItem("usuario", respuesta.usuario);
     localStorage.setItem("token", respuesta.token);
     mostrarDashboard(respuesta.usuario);
   } catch (error) {
@@ -104,7 +106,6 @@ loginForm.addEventListener("submit", async evento => {
 });
 
 cerrarSesion.addEventListener("click", () => {
-  localStorage.removeItem("usuario");
   localStorage.removeItem("token");
   usuarioActual = null;
   dashboard.classList.add("oculto");
@@ -137,7 +138,6 @@ async function revisarLoginGoogle() {
       const estado = await solicitar(`/auth/social/google/status?state=${encodeURIComponent(state)}`);
       if (estado.estado === "completado") {
         const resultado = estado.resultado;
-        localStorage.setItem("usuario", resultado.usuario);
         localStorage.setItem("token", resultado.token);
         history.replaceState({}, "", location.pathname);
         mostrarDashboard(resultado.usuario);
@@ -149,6 +149,23 @@ async function revisarLoginGoogle() {
   }
 }
 
-const usuarioGuardado = localStorage.getItem("usuario");
-if (usuarioGuardado) mostrarDashboard(usuarioGuardado);
+// La sesión solo se restaura si el servidor confirma el token guardado.
+async function restaurarSesion() {
+  localStorage.removeItem("usuario");
+  const token = localStorage.getItem("token");
+  if (!token) return;
+  try {
+    const sesion = await solicitar("/auth/validate", {
+      method: "POST",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({token}),
+    });
+    mostrarDashboard(sesion.usuario);
+  } catch (_) {
+    localStorage.removeItem("token");
+    loginMensaje.textContent = "Tu sesion expiro. Inicia sesion de nuevo.";
+  }
+}
+
+restaurarSesion();
 revisarLoginGoogle();

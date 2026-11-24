@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -39,6 +39,39 @@ resultados = AlmacenResultados()
 social = AlmacenLoginSocial(cuentas)
 
 
+def usuario_autenticado(authorization: str | None = Header(default=None)) -> str:
+    """Devuelve el usuario dueño del token `Authorization: Bearer <token>` o responde 401."""
+    esquema, _, token = (authorization or "").partition(" ")
+    if esquema.lower() != "bearer" or not token.strip():
+        raise HTTPException(
+            status_code=401,
+            detail="Inicia sesión para consultar estos datos.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    usuario = cuentas.validar_sesion(token.strip())
+    if usuario is None:
+        raise HTTPException(
+            status_code=401,
+            detail="La sesión no es válida o expiró. Inicia sesión de nuevo.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return usuario
+
+
+def exigir_mismo_usuario(usuario: str, autenticado: str) -> str:
+    """Responde 403 si la ruta pide datos de otra cuenta; devuelve el nombre canónico."""
+    if usuario.strip().lower() != autenticado.lower():
+        raise HTTPException(status_code=403, detail="Solo puedes consultar tus propios datos.")
+    return autenticado
+
+
+def participa(partida: dict, usuario: str) -> bool:
+    return any(
+        str(datos.get("usuario") or "").lower() == usuario.lower()
+        for datos in partida.get("jugadores", {}).values()
+    )
+
+
 class Registro(BaseModel):
     usuario: str = Field(min_length=3, max_length=20)
     correo: str
@@ -63,16 +96,6 @@ class RecuperacionRestablecer(BaseModel):
     correo: str
     codigo: str
     clave_nueva: str = Field(min_length=8)
-
-
-class Resultado(BaseModel):
-    match_id: str
-    jugadores: dict
-    winner: str | None = None
-    elapsed: float = 0.0
-    overtime: int = 0
-    condition: str | None = None
-    value: int | None = None
 
 
 @app.get("/health")
@@ -127,7 +150,11 @@ def restablecer(datos: RecuperacionRestablecer):
 
 @app.get("/auth/usuarios")
 def listar_usuarios():
-    return {"usuarios": cuentas.listar()}
+    # Lista pública: nunca incluye correos.
+    return {"usuarios": [
+        {"usuario": cuenta["usuario"], "correo_verificado": cuenta["correo_verificado"]}
+        for cuenta in cuentas.listar()
+    ]}
 
 
 @app.post("/auth/social/google/start")
@@ -216,32 +243,19 @@ def validar_sesion(token: dict):
     return {"usuario": usuario}
 
 
-@app.post("/resultados")
-def guardar_resultado(datos: Resultado):
-    try:
-        return resultados.guardar_resultado(
-            datos.match_id,
-            datos.jugadores,
-            datos.winner,
-            datos.elapsed,
-            datos.overtime,
-            datos.condition,
-            datos.value,
-        )
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
-
-
 @app.get("/resultados")
-def listar_resultados():
-    return {"partidas": resultados.listar()}
+def listar_resultados(autenticado: str = Depends(usuario_autenticado)):
+    # Los resultados los guarda el servidor de juego en proceso; aquí solo se consultan.
+    return {"partidas": [p for p in resultados.listar() if participa(p, autenticado)]}
 
 
 @app.get("/resultados/{match_id}")
-def obtener_resultado(match_id: str):
+def obtener_resultado(match_id: str, autenticado: str = Depends(usuario_autenticado)):
     resultado = resultados.obtener(match_id)
     if resultado is None:
         raise HTTPException(status_code=404, detail="Resultado no encontrado.")
+    if not participa(resultado, autenticado):
+        raise HTTPException(status_code=403, detail="Solo puedes consultar tus propias partidas.")
     return resultado
 
 
@@ -252,14 +266,14 @@ def ranking():
 
 
 @app.get("/usuarios/{usuario}/historial")
-def historial_usuario(usuario: str):
-    usuario = usuario.strip().lower()
+def historial_usuario(usuario: str, autenticado: str = Depends(usuario_autenticado)):
+    usuario = exigir_mismo_usuario(usuario, autenticado)
     return {"usuario": usuario, "historial": resultados.historial(usuario)}
 
 
 @app.get("/usuarios/{usuario}/perfil")
-def perfil_usuario(usuario: str):
-    usuario = usuario.strip().lower()
+def perfil_usuario(usuario: str, autenticado: str = Depends(usuario_autenticado)):
+    usuario = exigir_mismo_usuario(usuario, autenticado)
     try:
         cuenta = cuentas.perfil(usuario)
     except ValueError:

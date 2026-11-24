@@ -39,13 +39,14 @@ def test_webapp_login_y_perfil(monkeypatch, tmp_path):
 
     login = cliente.post("/auth/login", json={"identificador": "ana", "clave": "Clave123"})
     assert login.status_code == 200
+    cabecera = {"Authorization": f"Bearer {login.json()['token']}"}
 
-    perfil = cliente.get("/usuarios/ana/perfil")
+    perfil = cliente.get("/usuarios/ana/perfil", headers=cabecera)
     assert perfil.status_code == 200
     assert perfil.json()["usuario"] == "ana"
     assert perfil.json()["estadisticas"]["puntaje_total"] == 12
 
-    historial = cliente.get("/usuarios/ana/historial")
+    historial = cliente.get("/usuarios/ana/historial", headers=cabecera)
     assert historial.status_code == 200
     assert historial.json()["historial"][0]["match_id"] == "partida-web"
 
@@ -70,3 +71,14 @@ def test_historial_web_muestra_la_fecha_de_cada_partida():
 
     assert "<th>Fecha</th>" in html
     assert "fechaLegible(partida.fecha)" in script
+
+
+def test_web_envia_token_y_no_confia_en_el_usuario_guardado():
+    import app.main as modulo
+
+    script = (modulo.WEB_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "cabeceras.Authorization = `Bearer ${token}`" in script
+    assert "/auth/validate" in script
+    assert 'localStorage.getItem("usuario")' not in script
+    assert 'localStorage.setItem("usuario"' not in script

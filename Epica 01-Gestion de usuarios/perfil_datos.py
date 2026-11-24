@@ -196,10 +196,10 @@ def calcular_ranking(usuarios, nombre_usuario, tamano_top=5):
 # ---------------------------------------------------------------------
 # PERFIL COMPLETO (lo que muestra la pantalla de perfil)
 # ---------------------------------------------------------------------
-def obtener_perfil(nombre_usuario):
+def obtener_perfil(nombre_usuario, token=None):
     try:
         from api_servidor import historial, perfil, ranking
-        remoto = perfil(nombre_usuario)
+        remoto = perfil(nombre_usuario, token)
         datos_ranking = ranking()["ranking"]
         mi_fila = next((fila for fila in datos_ranking if fila["usuario"] == nombre_usuario), None)
         top = [
@@ -216,7 +216,7 @@ def obtener_perfil(nombre_usuario):
             "mi_puntaje": mi_fila["puntaje_total"] if mi_fila else 0,
             "top": top,
         }
-        datos_historial = historial(nombre_usuario)["historial"]
+        datos_historial = historial(nombre_usuario, token)["historial"]
         historial_normalizado = []
         for partida in datos_historial:
             historial_normalizado.append({

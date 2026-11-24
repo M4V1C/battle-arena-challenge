@@ -7,6 +7,8 @@ import types
 from datetime import datetime, timezone
 from pathlib import Path
 
+from fastapi.testclient import TestClient
+
 from app.auth_store import AlmacenCuentas
 from app.resultados_store import AlmacenResultados
 
@@ -18,13 +20,31 @@ def importar_perfil_datos(monkeypatch):
     return importlib.import_module("perfil_datos")
 
 
+def instalar_api_http(monkeypatch, main):
+    """Sustituye api_servidor por llamadas HTTP reales a la app, con el mismo contrato de errores."""
+    cliente = TestClient(main.app)
+
+    def llamar(ruta, token=None):
+        cabeceras = {"Authorization": f"Bearer {token}"} if token else {}
+        respuesta = cliente.get(ruta, headers=cabeceras)
+        if respuesta.status_code != 200:
+            raise ValueError(respuesta.json()["detail"])
+        return respuesta.json()
+
+    api = types.ModuleType("api_servidor")
+    api.perfil = lambda usuario, token=None: llamar(f"/usuarios/{usuario}/perfil", token)
+    api.historial = lambda usuario, token=None: llamar(f"/usuarios/{usuario}/historial", token)
+    api.ranking = lambda: llamar("/ranking")
+    monkeypatch.setitem(sys.modules, "api_servidor", api)
+
+
 def test_login_resultado_y_perfil_de_escritorio(tmp_path, monkeypatch):
     import app.main as main
 
     cuentas = AlmacenCuentas(tmp_path / "usuarios.json", tmp_path / "sesiones.json")
     registro = cuentas.registrar("ana", "ana@example.com", "Clave123")
     cuentas.verificar("ana", registro["codigo_verificacion"])
-    assert cuentas.login("ana", "Clave123")["token"]
+    token = cuentas.login("ana", "Clave123")["token"]
 
     resultados = AlmacenResultados(tmp_path / "resultados.json")
     resultados.guardar_resultado(
@@ -35,14 +55,9 @@ def test_login_resultado_y_perfil_de_escritorio(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(main, "cuentas", cuentas)
     monkeypatch.setattr(main, "resultados", resultados)
-
-    api = types.ModuleType("api_servidor")
-    api.perfil = main.perfil_usuario
-    api.ranking = main.ranking
-    api.historial = main.historial_usuario
-    monkeypatch.setitem(sys.modules, "api_servidor", api)
+    instalar_api_http(monkeypatch, main)
     perfil_datos = importar_perfil_datos(monkeypatch)
-    perfil = perfil_datos.obtener_perfil("ana")
+    perfil = perfil_datos.obtener_perfil("ana", token)
 
     assert perfil["correo"] == "ana@example.com"
     assert perfil["correo_verificado"] is True
@@ -54,6 +69,23 @@ def test_login_resultado_y_perfil_de_escritorio(tmp_path, monkeypatch):
     assert perfil["nivel"] >= 1
     assert perfil["logros"] and "desbloqueado" in perfil["logros"][0]
     assert perfil["logros"][0]["desbloqueado"] is True
+
+
+def test_perfil_de_escritorio_sin_token_no_obtiene_datos_del_servidor(tmp_path, monkeypatch):
+    import app.main as main
+
+    cuentas = AlmacenCuentas(tmp_path / "usuarios.json", tmp_path / "sesiones.json")
+    registro = cuentas.registrar("ana", "ana@example.com", "Clave123")
+    cuentas.verificar("ana", registro["codigo_verificacion"])
+    monkeypatch.setattr(main, "cuentas", cuentas)
+    monkeypatch.setattr(main, "resultados", AlmacenResultados(tmp_path / "resultados.json"))
+    instalar_api_http(monkeypatch, main)
+    perfil_datos = importar_perfil_datos(monkeypatch)
+    # Sin cuentas locales de respaldo, un 401 del servidor deja el perfil vacío.
+    monkeypatch.setattr(perfil_datos, "cargar_usuarios", lambda: [])
+
+    assert perfil_datos.obtener_perfil("ana") is None
+    assert perfil_datos.obtener_perfil("ana", "token-inventado") is None
 
 
 def test_fecha_del_historial_se_muestra_en_hora_local_o_sin_fecha(monkeypatch):
