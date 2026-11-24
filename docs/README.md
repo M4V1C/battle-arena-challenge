@@ -57,7 +57,7 @@ Los valores salen de `server/data/reglas.json` y de las constantes de `server/ap
 
 - **Extracción del reactor.** Un jugador cuyo centro está a 60 px o menos del centro del reactor pulsa *interactuar* y pasa a ser su operador. Mientras opera no se mueve ni dispara y suma `puntos_por_energia` (1) cada `intervalo_extraccion` (0,5 s). Vuelve a pulsar *interactuar* para soltarlo.
 - Solo hay un operador a la vez. El operador pierde el reactor si un guardián lo toca, si cae en una trampa, si empieza una sobrecarga o si se desconecta; los puntos ya sumados se conservan.
-- **Energía extra.** El primer jugador que toca el ícono suma `puntos_energia_extra` (3).
+- **Energía extra.** El primer jugador que toca el ícono suma `puntos_energia_extra` (3). Durante una sobrecarga no se puede tomar; el ícono sigue disponible hasta que vence.
 - **No dan puntos:** moverse, disparar, pulsar fuera de rango, repetir un mensaje ya procesado (los contadores de pulsaciones son acumulativos) ni ninguna acción antes de empezar o después de terminar.
 - El disparo es solo visual: el proyectil desaparece al chocar y no afecta al rival.
 - Acciones rechazadas y su código: fuera de rango (`out_of_range`), reactor ocupado (`reactor_busy`), sobrecarga (`reactor_overload`), jugador aturdido (`player_stunned`) o atrapado (`player_trapped`), partida inactiva (`match_not_active`) y cerrar una puerta sobre un jugador (`door_occupied`). El motivo aparece en el HUD del jugador.
@@ -97,7 +97,7 @@ El servidor programa el calendario al iniciar cada partida. El horizonte `H` es 
 |---|---|---|---|
 | Energía extra (×3) | 8 %, 32 % y 58 % de `H` | 8 % de `H`, máx. 5 s | Ícono en una posición libre al azar; +3 al primero que lo toca |
 | +5 guardianes | 22 % de `H` | 20 % de `H`, máx. 10 s | Cinco guardianes temporales en posiciones libres al azar; luego desaparecen |
-| Sobrecarga (×2 o ×3) | Al azar entre 12-18 % y 52-58 % de `H`; con 50 % de probabilidad, otra entre 78-84 % | 8 % de `H`, máx. 4 s | El reactor no extrae, se suelta al operador y *interactuar* se rechaza |
+| Sobrecarga (×2 o ×3) | Al azar entre 12-18 % y 52-58 % de `H`; con 50 % de probabilidad, otra entre 78-84 % | 8 % de `H`, máx. 4 s | El reactor no extrae, se suelta al operador, *interactuar* se rechaza y la energía extra no se puede tomar |
 | Impulso | 40 % de `H` | 12 % de `H`, máx. 5 s | Todos se mueven 50 % más rápido |
 | Tregua | 70 % de `H` | 12 % de `H`, máx. 5 s | Los guardianes se detienen y no aturden |
 

@@ -93,6 +93,40 @@ def test_sobrecarga_corta_y_rechaza_extraccion_luego_se_restaura():
     assert juego.avanzar(0.5)["players"]["red"]["score"] == puntos + 1
 
 
+def energia_durante_sobrecarga():
+    """Partida con una energ\u00eda que aparece justo cuando empieza una sobrecarga de 1 s."""
+    juego = partida()
+    energia = next(e for e in juego._eventos if e.tipo == "energy")
+    sobrecarga = next(e for e in juego._eventos if e.tipo == "overload")
+    sobrecarga.inicio, sobrecarga.duracion = energia.inicio, 1.0
+    energia.duracion = 3.0
+    estado = juego.avanzar(energia.inicio)
+    assert estado["reactor"]["status"] == "overload"
+    item = estado["energy_items"][0]
+    juego._jugadores["red"].x, juego._jugadores["red"].y = item["x"], item["y"]
+    return juego
+
+
+def test_energia_no_puntua_durante_la_sobrecarga():
+    juego = energia_durante_sobrecarga()
+
+    durante = juego.avanzar(0.5)
+
+    assert durante["players"]["red"]["score"] == 0
+    assert len(durante["energy_items"]) == 1
+    assert not [n for n in durante["notifications"] if n["kind"] == "energy_claimed"]
+
+
+def test_energia_se_puede_tomar_al_terminar_la_sobrecarga():
+    juego = energia_durante_sobrecarga()
+
+    despues = juego.avanzar(1.5)
+
+    assert despues["reactor"]["status"] != "overload"
+    assert despues["players"]["red"]["score"] == 3
+    assert despues["energy_items"] == []
+
+
 def test_impulso_aumenta_velocidad_y_luego_la_restaura():
     juego = partida()
     impulso = evento(juego.estado(), "speed_boost")

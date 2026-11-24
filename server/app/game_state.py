@@ -514,6 +514,9 @@ class EstadoJuego:
         self._tiempo_reactor = 0.0
 
     def _recoger_energia(self, nombre: str) -> None:
+        # Durante la sobrecarga nadie suma energía; el ícono sigue hasta que vence.
+        if self._evento_activo("overload"):
+            return
         jugador = self._jugadores[nombre]
         for evento in self._eventos:
             zona = self._energia_items.get(evento.id)
