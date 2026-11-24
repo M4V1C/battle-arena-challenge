@@ -11,7 +11,7 @@ import pygame
 from game import Juego
 from local_match_network import ConexionPartidaLocal
 from screens import Aplicacion
-
+from importlib import import_module
 
 def test_la_pantalla_envia_el_escenario_elegido_al_juego():
     pygame.init()
@@ -60,8 +60,9 @@ def test_la_arena_usa_el_tema_recibido_del_servidor():
 
 def test_ventana_local_inicia_laberinto_con_dos_sesiones(monkeypatch):
     monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "server"))
-    from app.game_state import EstadoJuego
-    from app.socket_server import manejar_cliente
+    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[1] / "server"))
+    EstadoJuego = import_module("app.game_state").EstadoJuego
+    manejar_cliente = import_module("app.socket_server").manejar_cliente
 
     juego = EstadoJuego(semilla=5)
     servidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
