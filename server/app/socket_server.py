@@ -261,13 +261,15 @@ def servir(
     servidor: socket.socket,
     validar_sesion: Callable[[Any], str | None] = validar_sesion_falsa,
     resultados: AlmacenResultados | None = None,
+    estado_juego: EstadoJuego | None = None,
 ) -> None:
     """Acepta conexiones y crea un hilo por cliente sobre el mismo estado."""
     resultados = resultados if resultados is not None else AlmacenResultados()
 
-    estado_juego = EstadoJuego(
-        guardar_resultado=lambda resultado: guardar_resultado_final(resultados, resultado)
-    )
+    if estado_juego is None:
+        estado_juego = EstadoJuego(
+            guardar_resultado=lambda resultado: guardar_resultado_final(resultados, resultado)
+        )
     configuracion = AlmacenConfiguracion()
     detener_simulacion = threading.Event()
     avatares = AlmacenAvatares()

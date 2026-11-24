@@ -92,3 +92,16 @@ def test_web_envia_token_y_no_confia_en_el_usuario_guardado():
     assert "/auth/validate" in script
     assert 'localStorage.getItem("usuario")' not in script
     assert 'localStorage.setItem("usuario"' not in script
+
+
+def test_web_consulta_la_partida_en_curso_cada_segundo_y_medio():
+    import app.main as modulo
+
+    html = (modulo.WEB_DIR / "index.html").read_text(encoding="utf-8")
+    script = (modulo.WEB_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert 'id="partidaPanel"' in html
+    assert 'solicitar("/partida/estado")' in script
+    assert "setInterval(actualizarPartida, 1500)" in script
+    # Al cerrar sesion deja de consultar.
+    assert "clearInterval(sondeoPartida)" in script

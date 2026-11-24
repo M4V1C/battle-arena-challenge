@@ -114,7 +114,7 @@ Una partida cuenta una sola vez (por `match_id`) y el ranking se recalcula en ca
 
 ## Acceso móvil
 
-La webapp se abre desde el navegador del móvil en `http://<IP-del-servidor>:8000/webapp/`, con el móvil en la misma red que el servidor. Se adapta a pantallas de 900 px y de 560 px o menos. Permite iniciar sesión con usuario o correo y contraseña (o con Google, si está configurado) y consultar el resumen de estadísticas, el historial con fecha y el ranking global. Las consultas privadas usan el token de la sesión; al cerrar sesión se borra del navegador.
+La webapp se abre desde el navegador del móvil en `http://<IP-del-servidor>:8000/webapp/`, con el móvil en la misma red que el servidor. Se adapta a pantallas de 900 px y de 560 px o menos. Permite iniciar sesión con usuario o correo y contraseña (o con Google, si está configurado) y consultar el resumen de estadísticas, el historial con fecha y el ranking global. Mientras el panel está abierto, muestra la partida en curso consultando `GET /partida/estado` cada 1,5 s. Las consultas privadas usan el token de la sesión; al cerrar sesión se borra del navegador.
 
 ## Criterios de pruebas del producto
 

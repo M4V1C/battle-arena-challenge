@@ -32,6 +32,19 @@
     </section>
 
     <section id="dashboard" class="dashboard oculto">
+      <section id="partidaPanel" class="tablaPanel" aria-live="polite">
+        <div class="tituloPanel"><h2>Partida en curso</h2><span id="partidaEstado" class="etiqueta">Sin partida</span></div>
+        <div class="partidaCuerpo">
+          <p id="partidaDetalle" class="detalle">-</p>
+          <div class="jugadoresPartida">
+            <article class="jugadorPartida rojo"><p id="partidaRojoNombre">Libre</p><strong id="partidaRojoPuntaje">0</strong><span id="partidaRojoEstado">-</span></article>
+            <article class="jugadorPartida azul"><p id="partidaAzulNombre">Libre</p><strong id="partidaAzulPuntaje">0</strong><span id="partidaAzulEstado">-</span></article>
+          </div>
+          <p id="partidaReactor" class="detalle">Reactor: -</p>
+          <p id="partidaEventos" class="detalle"></p>
+        </div>
+      </section>
+
       <div class="resumen">
         <article class="tarjeta principal">
           <p>Jugador</p>

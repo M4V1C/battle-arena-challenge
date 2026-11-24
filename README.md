@@ -187,6 +187,7 @@ Detener con `Ctrl+C`. No ejecutar a la vez este servidor y el contenedor de la A
 | `POST /auth/social/google/start`, `GET /auth/social/google/callback`, `GET /auth/social/google/status` | Pública | Inicio de sesión con Google |
 | `GET /auth/usuarios` | Pública | Usuarios y si su correo está verificado (sin correos) |
 | `GET /ranking` | Pública | Ranking global |
+| `GET /partida/estado` | Pública | Partida en curso: jugadores, puntaje, tiempo, reactor y eventos activos (sin posiciones, tokens ni correos) |
 | `GET /usuarios/{usuario}/perfil`, `GET /usuarios/{usuario}/historial` | Token del mismo usuario | Perfil, estadísticas e historial |
 | `GET /resultados`, `GET /resultados/{match_id}` | Token de un participante | Partidas propias (solo lectura) |
 | `/webapp/` | Pública | Webapp de estadísticas |

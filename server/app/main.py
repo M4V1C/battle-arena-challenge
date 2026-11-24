@@ -9,8 +9,9 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from app.socket_server import HOST, PORT, crear_socket_servidor, servir
+from app.socket_server import HOST, PORT, crear_socket_servidor, guardar_resultado_final, servir
 from app.auth_store import AlmacenCuentas
+from app.game_state import EstadoJuego
 from app.resultados_store import AlmacenResultados
 from app.social_store import AlmacenLoginSocial
 
@@ -21,7 +22,11 @@ async def lifespan(app: FastAPI):
     threading.Thread(
         target=servir,
         args=(srv,),
-        kwargs={"validar_sesion": cuentas.validar_sesion, "resultados": resultados},
+        kwargs={
+            "validar_sesion": cuentas.validar_sesion,
+            "resultados": resultados,
+            "estado_juego": partida,
+        },
         daemon=True,
     ).start()
     print(f"Servidor de sockets escuchando en {HOST}:{PORT}", flush=True)
@@ -38,6 +43,8 @@ app.mount("/webapp", StaticFiles(directory=WEB_DIR, html=True), name="webapp")
 cuentas = AlmacenCuentas()
 resultados = AlmacenResultados()
 social = AlmacenLoginSocial(cuentas)
+# Partida compartida con el servidor TCP; guarda en el almacén vigente al cerrar.
+partida = EstadoJuego(guardar_resultado=lambda resultado: guardar_resultado_final(resultados, resultado))
 
 
 def usuario_autenticado(authorization: str | None = Header(default=None)) -> str:
@@ -274,6 +281,47 @@ def obtener_resultado(match_id: str, autenticado: str = Depends(usuario_autentic
 def ranking():
     ranking_ordenado = resultados.ranking()
     return {"ranking": ranking_ordenado, "total": len(ranking_ordenado)}
+
+
+def estado_publico(estado: dict) -> dict:
+    """Resumen de la partida sin posiciones, tokens ni correos."""
+    datos_partida = estado["match"]
+    limite = datos_partida["time_limit"]
+    return {
+        "match_id": datos_partida["match_id"],
+        "iniciada": datos_partida["started"],
+        "finalizada": datos_partida["finished"],
+        "en_curso": datos_partida["started"] and not datos_partida["finished"],
+        "escenario": estado["scenario"]["name"],
+        "condicion": datos_partida["condition"],
+        "objetivo": datos_partida["value"],
+        "tiempo": {
+            "transcurrido": datos_partida["elapsed"],
+            "limite": limite,
+            "restante": max(0.0, limite - datos_partida["elapsed"]) if limite is not None else None,
+            "prorrogas": datos_partida["overtime"],
+        },
+        "ganador": datos_partida["winner"],
+        "reactor": {"estado": estado["reactor"]["status"], "operador": estado["reactor"]["operator"]},
+        "jugadores": {
+            puesto: {
+                "usuario": jugador["username"],
+                "puntaje": jugador["score"],
+                "conectado": jugador["connected"],
+                "estado": jugador["status"],
+            }
+            for puesto, jugador in estado["players"].items()
+        },
+        "eventos_activos": [
+            {"tipo": evento["type"], "restante": evento["remaining"]}
+            for evento in estado["events"] if evento["status"] == "active"
+        ],
+    }
+
+
+@app.get("/partida/estado")
+def estado_partida():
+    return estado_publico(partida.estado())
 
 
 @app.get("/usuarios/{usuario}/historial")

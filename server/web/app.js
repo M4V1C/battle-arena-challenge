@@ -5,6 +5,14 @@ const cerrarSesion = document.querySelector("#cerrarSesion");
 const loginMensaje = document.querySelector("#loginMensaje");
 
 let usuarioActual = null;
+let sondeoPartida = null;
+
+const ESTADOS_JUGADOR = {normal: "Normal", stunned: "Aturdido", frozen: "Atrapado"};
+const ESTADOS_REACTOR = {available: "Disponible", in_use: "En uso", overload: "Sobrecargado"};
+const NOMBRES_EVENTO = {
+  energy: "Energia extra", extra_guardians: "+5 guardianes", overload: "Sobrecarga",
+  speed_boost: "Impulso", guardian_truce: "Tregua",
+};
 
 async function solicitar(ruta, opciones = {}) {
   const cabeceras = {...(opciones.headers || {})};
@@ -58,6 +66,58 @@ function mostrarDashboard(nombre) {
   cerrarSesion.classList.remove("oculto");
   document.querySelector("#nombreJugador").textContent = nombre;
   cargarDatos();
+  iniciarSondeoPartida();
+}
+
+function textoEstadoPartida(estado) {
+  if (estado.finalizada) {
+    const ganador = estado.ganador ? (estado.jugadores[estado.ganador].usuario || estado.ganador) : "-";
+    return `Finalizada: gano ${ganador}`;
+  }
+  if (estado.en_curso) return estado.tiempo.prorrogas ? `Prorroga ${estado.tiempo.prorrogas}` : "En curso";
+  const conectados = Object.values(estado.jugadores).filter(jugador => jugador.conectado).length;
+  return conectados ? `En espera (${conectados}/2)` : "Sin partida";
+}
+
+function mostrarPartida(estado) {
+  document.querySelector("#partidaEstado").textContent = textoEstadoPartida(estado);
+  const tiempo = estado.tiempo.restante !== null
+    ? `Quedan ${duracion(Math.ceil(estado.tiempo.restante))}`
+    : `Objetivo ${estado.objetivo} puntos, ${duracion(estado.tiempo.transcurrido)} jugados`;
+  document.querySelector("#partidaDetalle").textContent = `${estado.escenario} - ${tiempo}`;
+  for (const [puesto, prefijo] of [["red", "Rojo"], ["blue", "Azul"]]) {
+    const jugador = estado.jugadores[puesto];
+    document.querySelector(`#partida${prefijo}Nombre`).textContent = jugador.usuario || "Libre";
+    document.querySelector(`#partida${prefijo}Puntaje`).textContent = jugador.puntaje;
+    document.querySelector(`#partida${prefijo}Estado`).textContent = jugador.conectado
+      ? (ESTADOS_JUGADOR[jugador.estado] || jugador.estado)
+      : "Desconectado";
+  }
+  const operador = estado.reactor.operador ? estado.jugadores[estado.reactor.operador].usuario : null;
+  document.querySelector("#partidaReactor").textContent =
+    `Reactor: ${ESTADOS_REACTOR[estado.reactor.estado] || estado.reactor.estado}${operador ? ` (${operador})` : ""}`;
+  document.querySelector("#partidaEventos").textContent = estado.eventos_activos.length
+    ? `Eventos: ${estado.eventos_activos.map(e => `${NOMBRES_EVENTO[e.tipo] || e.tipo} (${Math.ceil(e.restante)} s)`).join(", ")}`
+    : "";
+}
+
+async function actualizarPartida() {
+  try {
+    mostrarPartida(await solicitar("/partida/estado"));
+  } catch (_) {
+    document.querySelector("#partidaEstado").textContent = "Sin conexion";
+  }
+}
+
+function iniciarSondeoPartida() {
+  detenerSondeoPartida();
+  actualizarPartida();
+  sondeoPartida = setInterval(actualizarPartida, 1500);
+}
+
+function detenerSondeoPartida() {
+  if (sondeoPartida) clearInterval(sondeoPartida);
+  sondeoPartida = null;
 }
 
 async function cargarDatos() {
@@ -122,6 +182,7 @@ loginForm.addEventListener("submit", async evento => {
 
 cerrarSesion.addEventListener("click", () => {
   localStorage.removeItem("token");
+  detenerSondeoPartida();
   usuarioActual = null;
   dashboard.classList.add("oculto");
   cerrarSesion.classList.add("oculto");
