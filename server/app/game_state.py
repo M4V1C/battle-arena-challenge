@@ -129,9 +129,11 @@ class EstadoJuego:
         guardianes: tuple[Guardian, ...] | None = None,
         eventos: bool | None = None,
         guardar_resultado: Callable[[dict[str, Any]], bool] | None = None,
+        calcular_records: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     ):
         self._reglas = reglas if reglas is not None else cargar_reglas()
         self._guardar_resultado = guardar_resultado
+        self._calcular_records = calcular_records
 
         self._configuracion = dict(CONFIGURACION_INICIAL)
         self._obstaculos = tuple(obstaculos)
@@ -602,6 +604,12 @@ class EstadoJuego:
                 for puesto in PUESTOS
             },
         }
+        if self._calcular_records is not None:
+            # Se compara con lo guardado antes de esta partida; un fallo no impide cerrarla.
+            try:
+                self._resultado_final["records"] = self._calcular_records(self._resultado_final)
+            except (OSError, TypeError, ValueError):
+                pass
         if self._guardar_resultado is not None:
             try:
                 self._resultado_persistido = bool(self._guardar_resultado(self._resultado_final))

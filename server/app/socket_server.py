@@ -257,6 +257,21 @@ def guardar_resultado_final(resultados: AlmacenResultados, resultado: dict[str, 
     return bool(respuesta["ok"])
 
 
+def records_previos(resultados: AlmacenResultados, resultado: dict[str, Any]) -> dict[str, Any]:
+    """Compara cada puntaje final con el mejor personal y el mejor global ya guardados."""
+    mejores = {fila["usuario"]: fila["mejor_puntaje"] for fila in resultados.ranking()}
+    mejor_global = max(mejores.values(), default=0)
+    maximo = max(datos["score"] for datos in resultado["players"].values())
+    return {
+        puesto: {
+            "previous_best": mejores.get(datos["username"], 0),
+            "personal_best": datos["score"] > mejores.get(datos["username"], 0),
+            "global_best": datos["score"] == maximo and datos["score"] > mejor_global,
+        }
+        for puesto, datos in resultado["players"].items()
+    }
+
+
 def servir(
     servidor: socket.socket,
     validar_sesion: Callable[[Any], str | None] = validar_sesion_falsa,
@@ -268,7 +283,8 @@ def servir(
 
     if estado_juego is None:
         estado_juego = EstadoJuego(
-            guardar_resultado=lambda resultado: guardar_resultado_final(resultados, resultado)
+            guardar_resultado=lambda resultado: guardar_resultado_final(resultados, resultado),
+            calcular_records=lambda resultado: records_previos(resultados, resultado),
         )
     configuracion = AlmacenConfiguracion()
     detener_simulacion = threading.Event()

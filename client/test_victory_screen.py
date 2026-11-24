@@ -102,3 +102,31 @@ def test_puntuaciones_finales():
 
     assert pantalla._puntos_rojo == 20
     assert pantalla._puntos_azul == 15
+
+
+def estado_con_records(records):
+    estado = crear_estado()
+    estado["match"]["result"] = {"records": records}
+    return estado
+
+
+def test_ceremonia_muestra_los_records_que_informa_el_servidor():
+    pantalla = crear_pantalla(estado_con_records({
+        "red": {"previous_best": 12, "personal_best": True, "global_best": True},
+        "blue": {"previous_best": 10, "personal_best": True, "global_best": False},
+    }))
+
+    assert "Nuevo récord global de Jugador Rojo: 20 puntos" in pantalla.texto_records
+    assert "Nuevo récord personal de Jugador Azul: 15 puntos" in pantalla.texto_records
+
+
+@pytest.mark.parametrize("estado", [
+    crear_estado(),
+    estado_con_records({}),
+    estado_con_records({
+        "red": {"previous_best": 30, "personal_best": False, "global_best": False},
+        "blue": {"previous_best": 30, "personal_best": False, "global_best": False},
+    }),
+])
+def test_sin_records_no_se_muestra_ninguna_linea(estado):
+    assert crear_pantalla(estado).texto_records == ""

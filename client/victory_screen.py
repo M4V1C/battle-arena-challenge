@@ -81,6 +81,9 @@ class PantallaVictoria:
         self._condicion = partida.get("condition", "")
         self._objetivo = partida.get("value", 0)
         self._prorrogas = partida.get("overtime", 0)
+        self.texto_records = self._describir_records(
+            (partida.get("result") or {}).get("records") or {}
+        )
 
         colores_estrellas = [
             (255, 215, 80),   # Dorado
@@ -101,6 +104,19 @@ class PantallaVictoria:
             )
             for _ in range(90)
         ]
+
+    def _describir_records(self, records: dict) -> str:
+        """Texto de los récords que informó el servidor (vacío si no hubo)."""
+        puntos = {"red": self._puntos_rojo, "blue": self._puntos_azul}
+        partes = []
+        for puesto in ("red", "blue"):
+            record = records.get(puesto) or {}
+            nombre = self._nombres.get(puesto, puesto.capitalize())
+            if record.get("global_best"):
+                partes.append(f"¡Nuevo récord global de {nombre}: {puntos[puesto]} puntos!")
+            elif record.get("personal_best"):
+                partes.append(f"Nuevo récord personal de {nombre}: {puntos[puesto]} puntos")
+        return "  |  ".join(partes)
 
     def ejecutar(self) -> bool:
         """Muestra la victoria hasta que se regrese al menú o se cierre."""
@@ -240,6 +256,18 @@ class PantallaVictoria:
                     superficie.get_rect(
                         center=(ANCHO // 2, 520 + indice * 65)
                     ),
+                )
+
+            # Récords personales o globales batidos en esta partida.
+            if self.texto_records:
+                superficie_records = fuente_detalle.render(
+                    self.texto_records,
+                    True,
+                    DORADO,
+                )
+                pantalla.blit(
+                    superficie_records,
+                    superficie_records.get_rect(center=(ANCHO // 2, 640)),
                 )
 
             # Mostrar la duración total de la partida.

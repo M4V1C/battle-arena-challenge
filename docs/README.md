@@ -67,6 +67,7 @@ Los valores salen de `server/data/reglas.json` y de las constantes de `server/ap
 - La condición se configura en el cliente (`points` o `time`). Con puntos, gana el primero que alcanza el objetivo. Con tiempo, la partida dura los minutos indicados y gana quien tenga más puntos. Por defecto: 20 puntos.
 - Si hay empate al cerrar, empieza una prórroga de dos minutos: se conservan los puntajes y el `match_id`, los jugadores y guardianes vuelven a su posición inicial, las trampas se recolocan y no hay eventos. Se repite hasta que haya ganador.
 - Al terminar, el servidor congela la partida, guarda el resultado y todos los clientes reciben el mismo resultado y las mismas posiciones.
+- Antes de guardar, el servidor compara cada puntaje con el mejor puntaje personal y el mejor global de las partidas ya guardadas, y lo envía en `match.result.records` (`previous_best`, `personal_best`, `global_best`). La ceremonia muestra los récords batidos.
 
 ### Obstáculos, puertas y trampas
 

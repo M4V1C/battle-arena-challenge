@@ -11,7 +11,9 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from app.socket_server import HOST, PORT, crear_socket_servidor, guardar_resultado_final, servir
+from app.socket_server import (
+    HOST, PORT, crear_socket_servidor, guardar_resultado_final, records_previos, servir,
+)
 from app.auth_store import AlmacenCuentas, CorreoNoVerificado
 from app.game_state import EstadoJuego
 from app.resultados_store import AlmacenResultados
@@ -48,7 +50,10 @@ cuentas = AlmacenCuentas()
 resultados = AlmacenResultados()
 social = AlmacenLoginSocial(cuentas)
 # Partida compartida con el servidor TCP; guarda en el almacén vigente al cerrar.
-partida = EstadoJuego(guardar_resultado=lambda resultado: guardar_resultado_final(resultados, resultado))
+partida = EstadoJuego(
+    guardar_resultado=lambda resultado: guardar_resultado_final(resultados, resultado),
+    calcular_records=lambda resultado: records_previos(resultados, resultado),
+)
 
 
 def usuario_autenticado(authorization: str | None = Header(default=None)) -> str:
