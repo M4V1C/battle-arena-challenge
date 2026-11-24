@@ -18,6 +18,8 @@ PORT = int(os.getenv("SOCKET_PORT", "9000"))
 MAX_LINEA =  7 * 1024 * 1024 + 1
 FRECUENCIA_SIMULACION = 60
 DELTA_MAXIMO = 0.1
+# Mensajes que modifican datos compartidos: exigen una conexión con join.
+MENSAJES_CON_JOIN = ("save_config", "select_avatar", "upload_avatar")
 
 
 # Datos propios de una conexión TCP: el puesto que ocupa tras hacer join.
@@ -134,6 +136,11 @@ def procesar_mensaje(
         elif tipo in ("input", "start"):
             respuesta = _solicitud_de_puesto(
                 tipo, mensaje, estado_juego, configuracion, sesion
+            )
+        elif tipo in MENSAJES_CON_JOIN and sesion.puesto is None:
+            respuesta = _rechazo(
+                "not_joined",
+                "Debes unirte a la sala con join antes de cambiar la configuración o el avatar.",
             )
         elif tipo == "get_avatars":
             if avatares is None:

@@ -41,6 +41,8 @@ class Aplicacion:
         self._pendiente = False
         self._configuracion_cargada = False
         self._confirmacion = ""
+        self._config_unida = False
+        self._config_por_guardar: dict | None = None
         self._pantalla_avatares = PantallaAvatares(RepositorioAvatares(),{"red": self.usuarios.jugador_rojo,"blue": self.usuarios.jugador_azul,},)
         self._selector_escenarios = SelectorEscenarios()
 
@@ -55,6 +57,8 @@ class Aplicacion:
         self.pantalla_actual = "configuracion"
         self._confirmacion = ""
         self._configuracion_cargada = False
+        self._config_unida = False
+        self._config_por_guardar = None
         self._pendiente = True
         try:
             self._conexion_config = ConexionServidor(
@@ -70,6 +74,12 @@ class Aplicacion:
         respuesta = self._conexion_config.obtener_mensaje()
         if respuesta is None:
             return
+        if respuesta.get("type") == "joined":
+            self._config_unida = True
+            if self._config_por_guardar is not None:
+                self._conexion_config.guardar_configuracion(self._config_por_guardar)
+                self._config_por_guardar = None
+            return
         guardando = self._configuracion_cargada
         self._pendiente = False
         if respuesta.get("type") == "config":
@@ -79,6 +89,7 @@ class Aplicacion:
             self.error = ""
             self._confirmacion = "Configuracion guardada" if guardando else ""
         else:
+            self._config_por_guardar = None
             self.error = respuesta.get("message", "Respuesta de configuracion invalida")
 
     def _guardar_configuracion(self) -> None:
@@ -95,7 +106,13 @@ class Aplicacion:
         self.error = ""
         self._confirmacion = ""
         self._pendiente = True
-        self._conexion_config.guardar_configuracion({**self._configuracion, "value": valor})
+        configuracion = {**self._configuracion, "value": valor}
+        if self._config_unida:
+            self._conexion_config.guardar_configuracion(configuracion)
+            return
+        # El servidor solo acepta save_config de una conexión que hizo join.
+        self._config_por_guardar = configuracion
+        self._conexion_config.enviar_mensaje({"type": "join", "token": self.usuarios.token})
 
     def _evento_configuracion(self, evento: pygame.event.Event) -> None:
         if self._pendiente or not self._configuracion_cargada:

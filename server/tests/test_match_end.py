@@ -61,12 +61,13 @@ def test_configuracion_del_protocolo_se_aplica_al_iniciar(tmp_path):
     almacen = AlmacenConfiguracion(tmp_path / "config.json")
     juego = EstadoJuego()
     configuracion = {"condition": "time", "value": 2, "sensitivity": 3}
-    respuesta = json.loads(procesar_mensaje(json.dumps({"type": "save_config", "config": configuracion}), juego, almacen))
-    assert respuesta == {"type": "config", "config": configuracion}
     anfitrion, invitado = SesionCliente(), SesionCliente()
     for sesion, token in ((anfitrion, "ana"), (invitado, "beto")):
         unirse = json.dumps({"type": "join", "token": token})
         assert json.loads(procesar_mensaje(unirse, juego, almacen, sesion=sesion))["type"] == "joined"
+    guardar = json.dumps({"type": "save_config", "config": configuracion})
+    respuesta = json.loads(procesar_mensaje(guardar, juego, almacen, sesion=anfitrion))
+    assert respuesta == {"type": "config", "config": configuracion}
     estado = json.loads(procesar_mensaje('{"type":"start"}', juego, almacen, sesion=anfitrion))
     assert estado["match"]["condition"] == "time"
     assert estado["match"]["value"] == 2
