@@ -8,12 +8,17 @@ La descripción del producto, el MVP, la arquitectura, los sprints y el equipo e
 
 ```text
 .
-├── .github/workflows/ci.yml  # CI en GitHub Actions
-├── client/                  # Cliente local de dos jugadores con Pygame
-├── docs/                    # Documentación del producto
-├── server/                  # API FastAPI, Dockerfile, dependencias y pruebas
-├── .env.example             # Plantilla de variables opcionales, como SMTP
-├── docker-compose.yml       # Contenedor del servidor FastAPI/TCP
+├── .github/workflows/ci.yml          # CI en GitHub Actions
+├── client/                           # Cliente Pygame de un jugador (menú, partida, HUD, ceremonia)
+├── Epica 01-Gestion de usuarios/     # Pantallas de cuentas y perfil que usa el cliente
+├── docs/                             # Documentación del producto y modelo de datos
+├── server/
+│   ├── app/                          # API FastAPI y servidor de juego TCP
+│   ├── data/                         # Reglas, escenarios, configuración y datos persistentes
+│   ├── web/                          # Webapp de estadísticas (también para el móvil)
+│   └── tests/                        # Pruebas del servidor
+├── .env.example                      # Plantilla de variables (Google, SMTP, EXPOSE_CODES)
+├── docker-compose.yml                # Contenedor del servidor (API 8000 y TCP 9000)
 └── README.md
 ```
 
@@ -129,26 +134,37 @@ docker compose logs -f
 docker compose down
 ```
 
-`down` detiene y elimina los contenedores. La configuración de partida se conserva mediante el volumen montado en `server/data`. Las cuentas y avatares permanecen en los archivos locales del cliente.
+`down` detiene y elimina los contenedores. El volumen `./server/data` conserva cuentas, sesiones, resultados y configuración de partida. La selección de avatares se guarda en el equipo de cada cliente (`client/data/`).
 
 La imagen no monta el código local: después de modificar el servidor, ejecutar nuevamente `docker compose up --build -d`.
 
 ## Ejecutar el cliente de juego
 
-Con Docker Compose arriba y el entorno virtual activado:
+Con el servidor arriba y el entorno virtual activado:
 
 ```powershell
 python -m pip install -r .\client\requirements.txt
 python .\client\client.py
 ```
 
-La ventana muestra dos cuadrados: **rojo** se mueve con `W`, `A`, `S`, `D`; **azul** con las flechas. El cliente se conecta al servidor TCP en `127.0.0.1:9000`. Para conectarse a un servidor en otra dirección, pasar el host:
+Cada cliente representa **a un jugador**: para una partida se abren dos clientes, en el mismo equipo o en equipos distintos. En cada uno se inicia sesión, se pulsa *Empezar*, se elige escenario y se confirma. El primero en unirse ocupa el puesto rojo (anfitrión, su escenario es el que se usa) y el segundo el azul; la partida empieza sola cuando los dos están conectados.
+
+| Acción | Teclado (puesto rojo) | Teclado (puesto azul) | Mando PS5 |
+|---|---|---|---|
+| Mover | `W` `A` `S` `D` | Flechas | Stick izquierdo |
+| Interactuar (reactor, puertas) | `E` | `U` | Botón X |
+| Disparar | `Q` | `O` | R2 |
+
+Las teclas se cambian en [`client/keybindings.json`](client/keybindings.json). Cada cliente usa las del puesto que le asignó el servidor.
+
+El cliente se conecta al servidor TCP en `127.0.0.1:9000` y a la API de cuentas en `http://127.0.0.1:8000`. Para otro servidor, pasar el host o usar variables de entorno:
 
 ```powershell
 python .\client\client.py 192.168.1.25
+$env:BATTLE_API_URL = "http://192.168.1.25:8000"
 ```
 
-También se pueden configurar `SERVER_HOST` y `SERVER_PORT`. El cliente envía las entradas y representa el estado que devuelve el servidor; el cálculo y los límites de movimiento viven en el servidor. Pygame permanece en su hilo principal y un hilo de red separado evita bloquear la ventana.
+`SERVER_HOST` y `SERVER_PORT` cambian la dirección TCP. El cliente solo envía entradas y dibuja el estado que devuelve el servidor. La pantalla *Configuracion* se une a la sala con la sesión para guardar la condición de fin, así que ocupa un puesto mientras está abierta.
 
 ## Ejecutar la API sin Docker (opcional)
 
@@ -158,7 +174,26 @@ Con el entorno virtual activado, desde la raíz:
 python -m uvicorn app.main:app --app-dir .\server --reload --port 8000
 ```
 
-Detener con `Ctrl+C`. No ejecutar a la vez este servidor y el contenedor de la API en el puerto `8000`. Si se necesita mantener ambos, usar otro puerto local, por ejemplo `--port 8001`. Para que el cliente funcione, el servidor TCP en `9000` también debe estar en ejecución.
+Detener con `Ctrl+C`. No ejecutar a la vez este servidor y el contenedor de la API en el puerto `8000`. Si se necesita mantener ambos, usar otro puerto local, por ejemplo `--port 8001`. Al arrancar, la API levanta también el servidor de juego TCP en el puerto `9000`, en el mismo proceso y con los mismos datos.
+
+## API y webapp
+
+| Ruta | Acceso | Uso |
+|---|---|---|
+| `GET /health` | Pública | Estado del servicio |
+| `POST /auth/register`, `/auth/verify`, `/auth/verify/resend` | Pública | Registro y verificación de correo |
+| `POST /auth/login`, `/auth/validate` | Pública | Inicio de sesión (devuelve el token) y validación de un token |
+| `POST /auth/recovery/request`, `/auth/recovery/reset` | Pública | Recuperación de contraseña |
+| `POST /auth/social/google/start`, `GET /auth/social/google/callback`, `GET /auth/social/google/status` | Pública | Inicio de sesión con Google |
+| `GET /auth/usuarios` | Pública | Usuarios y si su correo está verificado (sin correos) |
+| `GET /ranking` | Pública | Ranking global |
+| `GET /usuarios/{usuario}/perfil`, `GET /usuarios/{usuario}/historial` | Token del mismo usuario | Perfil, estadísticas e historial |
+| `GET /resultados`, `GET /resultados/{match_id}` | Token de un participante | Partidas propias (solo lectura) |
+| `/webapp/` | Pública | Webapp de estadísticas |
+
+Las rutas privadas exigen la cabecera `Authorization: Bearer <token>`: sin token o con un token inválido responden `401`, y con el token de otra cuenta, `403`. Los resultados solo los escribe el servidor de juego al terminar cada partida.
+
+La webapp se abre en `http://localhost:8000/webapp/`. Desde un móvil en la misma red, usar la IP del equipo servidor, por ejemplo `http://192.168.1.25:8000/webapp/`.
 
 ## Pruebas y CI
 
@@ -166,11 +201,13 @@ Con el entorno virtual activado, desde la raíz:
 
 ```powershell
 python -m pytest .\server\tests
+$env:SDL_VIDEODRIVER = "dummy"; $env:SDL_AUDIODRIVER = "dummy"
+python -m pytest .\client
 ```
 
-Si la terminal ya está en la carpeta `server`, usar `python -m pytest`. Las pruebas actuales verifican `/health`, reglas del juego y una ruta inexistente; no requieren Docker ni persistencia externa.
+Las pruebas del servidor cubren la API (cuentas, control de acceso, ranking, historial), el protocolo TCP y las reglas del juego; las del cliente, pantallas, HUD, control y ceremonia. No requieren Docker ni persistencia externa: usan archivos temporales. Las variables `SDL_*` permiten correr las pruebas de Pygame sin ventana.
 
-El workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) usa Python 3.12, instala las dependencias del servidor, ejecuta `python -m pytest` desde `server` y construye las imágenes con Docker Compose. Se activa en cada *push* a `main` y en cada *pull request* dirigido a `main`; no se ejecuta por un *push* a `develop` por sí solo.
+El workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) usa Python 3.12, instala las dependencias del servidor y del cliente, ejecuta las pruebas del servidor y del cliente (con SDL en modo `dummy`) y construye la imagen con Docker Compose. Se activa en cada *push* y en cada *pull request* hacia `main` o `develop`.
 
 ## Problemas frecuentes
 
@@ -193,7 +230,8 @@ El workflow [`.github/workflows/ci.yml`](.github/workflows/ci.yml) usa Python 3.
 
 ## Documentación
 
-- [`docs/README.md`](docs/README.md): producto, MVP, arquitectura, planificación y equipo.
+- [`docs/README.md`](docs/README.md): producto, reglas del juego, arquitectura, planificación y equipo.
+- [`docs/modelo-de-datos.md`](docs/modelo-de-datos.md): archivos JSON, esquemas e integridad de los datos.
 - Wiki de Azure DevOps: documentación detallada del proyecto.
 - Board de Azure DevOps: historias de usuario y seguimiento del trabajo.
 
