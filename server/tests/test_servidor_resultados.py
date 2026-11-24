@@ -1,4 +1,5 @@
 import json
+from datetime import datetime, timedelta, timezone
 
 from fastapi.testclient import TestClient
 
@@ -38,6 +39,44 @@ def test_resultado_es_idempotente_por_match_id(tmp_path):
     assert segundo["duplicado"] is True
     assert segundo["resultado"]["winner"] == "red"
     assert len(almacen.listar()) == 1
+
+
+def test_resultado_nuevo_guarda_fecha_iso_utc(tmp_path):
+    ruta = tmp_path / "resultados.json"
+    almacen = AlmacenResultados(ruta)
+    antes = datetime.now(timezone.utc).replace(microsecond=0)
+    guardado = almacen.guardar_resultado("m-fecha", {"red": {"usuario": "ana", "score": 3}}, "red", 60)
+    despues = datetime.now(timezone.utc)
+
+    fecha = datetime.fromisoformat(guardado["resultado"]["fecha"])
+    assert fecha.utcoffset() == timedelta(0)
+    assert antes <= fecha <= despues
+    assert AlmacenResultados(ruta).historial("ana")[0]["fecha"] == guardado["resultado"]["fecha"]
+
+
+def test_reintento_conserva_la_fecha_original_y_no_duplica(tmp_path):
+    almacen = AlmacenResultados(tmp_path / "resultados.json")
+    primero = almacen.guardar_resultado("m1", {"red": {"usuario": "ana", "score": 3}}, "red", 60)
+    segundo = almacen.guardar_resultado("m1", {"red": {"usuario": "ana", "score": 9}}, "red", 99)
+
+    assert segundo["duplicado"] is True
+    assert segundo["resultado"]["fecha"] == primero["resultado"]["fecha"]
+    assert len(almacen.listar()) == 1
+
+
+def test_resultados_anteriores_sin_fecha_se_siguen_leyendo(tmp_path):
+    ruta = tmp_path / "resultados.json"
+    ruta.write_text(json.dumps({"partidas": [{
+        "match_id": "viejo", "winner": "red", "elapsed": 30, "overtime": 0,
+        "condition": "points", "value": 5,
+        "jugadores": {"red": {"usuario": "ana", "score": 5},
+                      "blue": {"usuario": "beto", "score": 1}},
+    }]}), encoding="utf-8")
+    almacen = AlmacenResultados(ruta)
+
+    assert almacen.historial("ana")[0]["fecha"] is None
+    assert almacen.historial("beto")[0]["resultado"] == "derrota"
+    assert almacen.ranking()[0]["usuario"] == "ana"
 
 
 def test_estado_final_incluye_match_id_y_game_over():

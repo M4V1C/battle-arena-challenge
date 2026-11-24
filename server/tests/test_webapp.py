@@ -60,3 +60,13 @@ def test_google_sin_configuracion_retorna_error_controlado(monkeypatch):
     respuesta = cliente.post("/auth/social/google/start", json={"redirect_uri": "http://127.0.0.1:8000/auth/social/google/callback"})
 
     assert respuesta.status_code == 503
+
+
+def test_historial_web_muestra_la_fecha_de_cada_partida():
+    import app.main as modulo
+
+    html = (modulo.WEB_DIR / "index.html").read_text(encoding="utf-8")
+    script = (modulo.WEB_DIR / "app.js").read_text(encoding="utf-8")
+
+    assert "<th>Fecha</th>" in html
+    assert "fechaLegible(partida.fecha)" in script

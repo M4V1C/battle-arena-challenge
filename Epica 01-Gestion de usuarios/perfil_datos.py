@@ -19,6 +19,7 @@
 # =====================================================================
 
 import time
+from datetime import datetime, timezone
 
 from config import PUNTOS_POR_NIVEL
 from base_datos import cargar_usuarios, guardar_usuarios, buscar_cuenta_por_usuario
@@ -40,6 +41,19 @@ def fecha_hoy():
 def fecha_hora_ahora():
     """Fecha y hora actuales, por ejemplo '25/10/2026 14:30'."""
     return time.strftime("%d/%m/%Y %H:%M")
+
+
+def formatear_fecha(valor):
+    """Convierte una fecha ISO 8601 del servidor a la hora local: '24/11/2026 15:05'."""
+    if not isinstance(valor, str) or not valor.strip():
+        return "Sin fecha"
+    try:
+        fecha = datetime.fromisoformat(valor.strip())
+    except ValueError:
+        return "Sin fecha"
+    if fecha.tzinfo is None:
+        fecha = fecha.replace(tzinfo=timezone.utc)
+    return fecha.astimezone().strftime("%d/%m/%Y %H:%M")
 
 
 def formatear_duracion(segundos):
@@ -206,7 +220,7 @@ def obtener_perfil(nombre_usuario):
         historial_normalizado = []
         for partida in datos_historial:
             historial_normalizado.append({
-                "fecha": partida["match_id"],
+                "fecha": formatear_fecha(partida.get("fecha")),
                 "resultado": partida["resultado"],
                 "puntaje": partida["score"],
                 "duracion_seg": int(partida["elapsed"]),

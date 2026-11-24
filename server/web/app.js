@@ -21,6 +21,12 @@ function duracion(segundos) {
   return `${minutos}:${String(resto).padStart(2, "0")}`;
 }
 
+function fechaLegible(iso) {
+  const fecha = iso ? new Date(iso) : null;
+  if (!fecha || Number.isNaN(fecha.getTime())) return "Sin fecha";
+  return fecha.toLocaleString("es-CR", {dateStyle: "short", timeStyle: "short"});
+}
+
 function mostrarDashboard(nombre) {
   usuarioActual = nombre;
   loginPanel.classList.add("oculto");
@@ -50,12 +56,13 @@ async function cargarDatos() {
   historialBody.innerHTML = historial.historial.length
     ? historial.historial.map(partida => `
       <tr>
+        <td>${fechaLegible(partida.fecha)}</td>
         <td>${partida.match_id.slice(0, 8)}</td>
         <td class="${partida.resultado}">${partida.resultado}</td>
         <td>${partida.score}</td>
         <td>${duracion(partida.elapsed)}</td>
       </tr>`).join("")
-    : `<tr><td colspan="4">Todavia no hay partidas.</td></tr>`;
+    : `<tr><td colspan="5">Todavia no hay partidas.</td></tr>`;
 
   const rankingBody = document.querySelector("#rankingBody");
   rankingBody.innerHTML = ranking.ranking.length
