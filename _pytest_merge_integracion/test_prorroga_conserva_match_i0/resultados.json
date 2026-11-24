@@ -1,0 +1,24 @@
+{
+  "partidas": [
+    {
+      "match_id": "8c5c3c9a7596447a8cbfbc1f29daedf5",
+      "winner": "blue",
+      "elapsed": 180.0,
+      "overtime": 1,
+      "condition": "time",
+      "value": 1,
+      "jugadores": {
+        "red": {
+          "usuario": "ana",
+          "score": 0,
+          "avatar": null
+        },
+        "blue": {
+          "usuario": "beto",
+          "score": 2,
+          "avatar": null
+        }
+      }
+    }
+  ]
+}

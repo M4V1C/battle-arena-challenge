@@ -1,0 +1,39 @@
+{
+  "partidas": [
+    {
+      "match_id": "partida-antigua",
+      "winner": "red",
+      "elapsed": 15.0,
+      "overtime": 0,
+      "condition": "points",
+      "value": 20,
+      "jugadores": {
+        "red": {
+          "usuario": "ana",
+          "score": 20,
+          "avatar": null
+        },
+        "blue": {
+          "usuario": "beto",
+          "score": 5,
+          "avatar": null
+        }
+      }
+    },
+    {
+      "match_id": "partida-nueva",
+      "winner": "red",
+      "elapsed": 8.0,
+      "overtime": 0,
+      "condition": null,
+      "value": null,
+      "jugadores": {
+        "red": {
+          "usuario": "ana",
+          "score": 1,
+          "avatar": null
+        }
+      }
+    }
+  ]
+}

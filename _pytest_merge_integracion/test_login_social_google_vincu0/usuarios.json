@@ -1,0 +1,18 @@
+[
+  {
+    "usuario": "Persona Uno",
+    "correo": "persona@example.com",
+    "contrasena_sal": "",
+    "contrasena_hash": "",
+    "correo_verificado": true,
+    "estadisticas": {
+      "partidas": 0,
+      "victorias": 0,
+      "derrotas": 0,
+      "puntaje_total": 0
+    },
+    "historial": [],
+    "avatar": "default",
+    "google_subject": "google-123"
+  }
+]

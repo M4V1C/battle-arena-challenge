@@ -1,0 +1,16 @@
+[
+  {
+    "usuario": "rest",
+    "correo": "rest@example.com",
+    "contrasena_sal": "003b5e3bdb95de87c0c706e7df9ac7b0",
+    "contrasena_hash": "9a663c6f99b6fd910f49b1d89831f0edbed73a18ab8b350cea29a862e9f1746a",
+    "correo_verificado": true,
+    "estadisticas": {
+      "partidas": 0,
+      "victorias": 0,
+      "derrotas": 0,
+      "puntaje_total": 0
+    },
+    "historial": []
+  }
+]

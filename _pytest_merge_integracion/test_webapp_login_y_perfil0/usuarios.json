@@ -1,0 +1,16 @@
+[
+  {
+    "usuario": "ana",
+    "correo": "ana@example.com",
+    "contrasena_sal": "2412f216afe83a42d09c90a96d9f3441",
+    "contrasena_hash": "311343f74840eb3d20113d4bd4496b87bc46a8a4cd7f43910b8296327e99bc66",
+    "correo_verificado": true,
+    "estadisticas": {
+      "partidas": 0,
+      "victorias": 0,
+      "derrotas": 0,
+      "puntaje_total": 0
+    },
+    "historial": []
+  }
+]
