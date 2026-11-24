@@ -377,7 +377,7 @@ class Juego:
         for guardian in self._estado.get("guardians", []):
             tamano = guardian.get("size", 40)
             centro = (guardian["x"] + tamano / 2, guardian["y"] + tamano / 2)
-            dibujar_guardian(pantalla, centro, tamano)
+            dibujar_guardian(pantalla, centro, tamano, guardian.get("id"))
             if guardian.get("temporary"):
                 pygame.draw.circle(pantalla, COLOR_ENERGIA_EXTRA,
                                    (int(centro[0]), int(centro[1])), int(tamano * 0.7), 2)
