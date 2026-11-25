@@ -1,0 +1,87 @@
+<!doctype>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Battle Arena - Estadisticas</title>
+  <link rel="stylesheet" href="/webapp/app.css">
+</head>
+<body>
+  <header class="barra">
+    <div>
+      <p class="eyebrow">Battle Arena</p>
+      <h1>Estadisticas</h1>
+    </div>
+    <button id="cerrarSesion" class="secundario oculto" type="button">Cerrar sesion</button>
+  </header>
+
+  <main>
+    <section id="loginPanel" class="panel login">
+      <p class="eyebrow">Jugador registrado</p>
+      <h2>Iniciar sesion</h2>
+      <form id="loginForm">
+        <label for="identificador">Usuario o correo</label>
+        <input id="identificador" name="identificador" autocomplete="username" required>
+        <label for="clave">Contrasena</label>
+        <input id="clave" name="clave" type="password" autocomplete="current-password" required>
+        <button type="submit">Entrar</button>
+      </form>
+      <div class="division"><span>o</span></div>
+      <button id="googleLogin" class="google" type="button">Continuar con Google</button>
+      <p id="loginMensaje" class="mensaje" role="status"></p>
+    </section>
+
+    <section id="dashboard" class="dashboard oculto">
+      <p id="datosMensaje" class="mensaje oculto" role="alert"></p>
+      <section id="partidaPanel" class="tablaPanel" aria-live="polite">
+        <div class="tituloPanel"><h2>Partida en curso</h2><span id="partidaEstado" class="etiqueta">Sin partida</span></div>
+        <div class="partidaCuerpo">
+          <p id="partidaDetalle" class="detalle">-</p>
+          <div class="jugadoresPartida">
+            <article class="jugadorPartida rojo"><p id="partidaRojoNombre">Libre</p><strong id="partidaRojoPuntaje">0</strong><span id="partidaRojoEstado">-</span></article>
+            <article class="jugadorPartida azul"><p id="partidaAzulNombre">Libre</p><strong id="partidaAzulPuntaje">0</strong><span id="partidaAzulEstado">-</span></article>
+          </div>
+          <p id="partidaReactor" class="detalle">Reactor: -</p>
+          <p id="partidaEventos" class="detalle"></p>
+        </div>
+      </section>
+
+      <div class="resumen">
+        <article class="tarjeta principal">
+          <p>Jugador</p>
+          <h2 id="nombreJugador">-</h2>
+          <span id="posicionJugador">Sin ranking</span>
+        </article>
+        <article class="tarjeta"><p>Partidas</p><strong id="partidas">0</strong></article>
+        <article class="tarjeta"><p>Victorias</p><strong id="victorias">0</strong></article>
+        <article class="tarjeta"><p>Puntaje total</p><strong id="puntaje">0</strong></article>
+        <article class="tarjeta"><p>Mejor puntaje</p><strong id="mejor">0</strong></article>
+      </div>
+
+      <div class="columnas">
+        <section class="tablaPanel">
+          <div class="tituloPanel"><h2>Historial</h2></div>
+          <div class="tablaContenedor">
+            <table>
+              <thead><tr><th>Fecha</th><th>Partida</th><th>Resultado</th><th>Puntaje</th><th>Duracion</th></tr></thead>
+              <tbody id="historialBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="tablaPanel">
+          <div class="tituloPanel"><h2>Ranking global</h2></div>
+          <div class="tablaContenedor">
+            <table>
+              <thead><tr><th>#</th><th>Jugador</th><th>Puntaje</th><th>Victorias</th></tr></thead>
+              <tbody id="rankingBody"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </section>
+  </main>
+
+  <script src="/webapp/app.js"></script>
+</body>
+</html>

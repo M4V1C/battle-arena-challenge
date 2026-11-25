@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install -r server/requirements.txt
+          python -m pip install -r client/requirements.txt
+
+      - name: Pruebas del servidor
+        run: python -m pytest
+        working-directory: server
+
+      - name: Pruebas del cliente Pygame
+        env:
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
+        run: python -m pytest .
+        working-directory: client
+
+      - name: Build de contenedores
+        run: docker compose build

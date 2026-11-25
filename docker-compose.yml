@@ -1,0 +1,15 @@
+services:
+  server:
+    build: ./server
+    environment:
+      SOCKET_HOST: 0.0.0.0
+      SOCKET_PORT: 9000
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://127.0.0.1:8000/auth/social/google/callback}
+      EXPOSE_CODES: ${EXPOSE_CODES:-0}
+    ports:
+      - "8000:8000"
+      - "9000:9000"
+    volumes:
+      - ./server/data:/app/data

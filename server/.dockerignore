@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+.git
+# Cuentas, sesiones y resultados llegan por el volumen; solo se copia la configuración estática.
+data/*
+!data/escenarios/
+!data/reglas.json
+!data/game_config.json

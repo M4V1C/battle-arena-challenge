@@ -1,0 +1,18 @@
+{
+  "red": {
+    "up": "w",
+    "down": "s",
+    "left": "a",
+    "right": "d",
+    "shoot": "q",
+    "interact": "e"
+  },
+  "blue": {
+    "up": "up",
+    "down": "down",
+    "left": "left",
+    "right": "right",
+    "shoot": "o",
+    "interact": "u"
+  }
+}

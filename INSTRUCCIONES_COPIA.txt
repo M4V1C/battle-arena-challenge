@@ -1,0 +1,30 @@
+PARCHE PARA RAMA CREADA DESDE feature/US-23,US-25
+
+Aplicar después de fusionar origin/develop HACIA esa rama. El ZIP se extrae en la raíz del repositorio y conserva la estructura de carpetas.
+
+Conflictos observados en un merge real aislado (feature/US-23,US-25 + origin/develop):
+client/game.py
+client/screens.py
+server/app/escenarios.py
+server/app/game_state.py
+server/app/socket_server.py
+server/data/escenarios/arena_clasica.json
+server/data/escenarios/laberinto.json
+
+Los otros archivos del ZIP arreglan incompatibilidades que Git no detecta: guardado único, API de perfil, resultados antiguos y pruebas obsoletas.
+
+Tras extraer el ZIP, retirar del seguimiento de Git los dos módulos obsoletos:
+git rm -- client/local_match_network.py server/app/resultados.py
+
+Retirar el resultado de ejemplo del seguimiento, conservando el archivo local para migración al nuevo formato:
+git rm --cached -- server/data/resultados.json
+
+Si Epica 01-Gestion de usuarios/usuarios.json contiene cuentas que necesitas conservar, guarda copia ANTES de hacer el merge. La autenticación de develop usa server/data/usuarios.json; la migración de cuentas antiguas no es automática.
+
+Luego: git add -- client server "Epica 01-Gestion de usuarios/perfil_datos.py"
+Verificar que git ls-files -u no muestre nada.
+Probar desde la raíz: python -m pytest server/tests client -q
+Revisar: git diff --cached --check
+Confirmar el merge con git commit.
+
+No aplicar este ZIP sobre la rama original sin haber fusionado develop primero.

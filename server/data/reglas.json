@@ -1,0 +1,7 @@
+{
+  "puntos_por_energia": 1,
+  "intervalo_extraccion": 0.5,
+  "duracion_aturdimiento": 2.0,
+  "velocidad_guardian": 120.0,
+  "puntos_energia_extra": 3
+}
