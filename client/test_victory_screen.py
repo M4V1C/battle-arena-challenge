@@ -52,6 +52,13 @@ def test_podio_ganador_azul():
     assert pantalla._podio == [("blue", 1), ("red", 2)]
 
 
+@pytest.mark.parametrize("ganador", [None, "verde"])
+def test_sin_ganador_valido_no_se_declara_ganador(ganador):
+    pantalla = crear_pantalla(crear_estado(ganador))
+
+    assert pantalla._podio == [("red", 1), ("blue", 1)]
+
+
 def test_duracion_partida():
     pantalla = crear_pantalla(crear_estado(duracion=332))
 

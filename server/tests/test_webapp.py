@@ -105,3 +105,14 @@ def test_web_consulta_la_partida_en_curso_cada_segundo_y_medio():
     assert "setInterval(actualizarPartida, 1500)" in script
     # Al cerrar sesion deja de consultar.
     assert "clearInterval(sondeoPartida)" in script
+
+
+def test_web_movil_tiene_viewport_y_diseno_para_pantallas_pequenas():
+    import app.main as modulo
+
+    html = (modulo.WEB_DIR / "index.html").read_text(encoding="utf-8")
+    estilos = (modulo.WEB_DIR / "app.css").read_text(encoding="utf-8")
+
+    assert '<meta name="viewport" content="width=device-width, initial-scale=1">' in html
+    assert "@media (max-width: 560px)" in estilos
+    assert ".tablaContenedor { overflow-x: auto; }" in estilos
