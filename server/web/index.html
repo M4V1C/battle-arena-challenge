@@ -32,6 +32,20 @@
     </section>
 
     <section id="dashboard" class="dashboard oculto">
+      <p id="datosMensaje" class="mensaje oculto" role="alert"></p>
+      <section id="partidaPanel" class="tablaPanel" aria-live="polite">
+        <div class="tituloPanel"><h2>Partida en curso</h2><span id="partidaEstado" class="etiqueta">Sin partida</span></div>
+        <div class="partidaCuerpo">
+          <p id="partidaDetalle" class="detalle">-</p>
+          <div class="jugadoresPartida">
+            <article class="jugadorPartida rojo"><p id="partidaRojoNombre">Libre</p><strong id="partidaRojoPuntaje">0</strong><span id="partidaRojoEstado">-</span></article>
+            <article class="jugadorPartida azul"><p id="partidaAzulNombre">Libre</p><strong id="partidaAzulPuntaje">0</strong><span id="partidaAzulEstado">-</span></article>
+          </div>
+          <p id="partidaReactor" class="detalle">Reactor: -</p>
+          <p id="partidaEventos" class="detalle"></p>
+        </div>
+      </section>
+
       <div class="resumen">
         <article class="tarjeta principal">
           <p>Jugador</p>
@@ -49,7 +63,7 @@
           <div class="tituloPanel"><h2>Historial</h2></div>
           <div class="tablaContenedor">
             <table>
-              <thead><tr><th>Partida</th><th>Resultado</th><th>Puntaje</th><th>Duracion</th></tr></thead>
+              <thead><tr><th>Fecha</th><th>Partida</th><th>Resultado</th><th>Puntaje</th><th>Duracion</th></tr></thead>
               <tbody id="historialBody"></tbody>
             </table>
           </div>

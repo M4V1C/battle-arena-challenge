@@ -12,6 +12,10 @@ ARCHIVO_USUARIOS = Path(__file__).resolve().parents[1] / "data" / "usuarios.json
 ARCHIVO_SESIONES = Path(__file__).resolve().parents[1] / "data" / "sesiones.json"
 
 
+class CorreoNoVerificado(ValueError):
+    """El proveedor social no confirmó el correo de la cuenta."""
+
+
 class AlmacenCuentas:
     def __init__(self, ruta_usuarios: Path = ARCHIVO_USUARIOS, ruta_sesiones: Path = ARCHIVO_SESIONES):
         self.ruta_usuarios = ruta_usuarios
@@ -181,12 +185,22 @@ class AlmacenCuentas:
             self._guardar_json(self.ruta_usuarios, self._usuarios)
             return {"ok": True, "codigo_verificacion": codigo}
 
-    def login_social_google(self, google_subject: str, correo: str, nombre: str | None = None) -> dict[str, Any]:
+    def login_social_google(
+        self,
+        google_subject: str,
+        correo: str,
+        nombre: str | None = None,
+        correo_verificado: bool = False,
+    ) -> dict[str, Any]:
         correo = correo.strip().lower()
         nombre = (nombre or correo.split("@", 1)[0]).strip()
         with self._bloqueo:
             cuenta = next((u for u in self._usuarios if u.get("google_subject") == google_subject), None)
             if cuenta is None:
+                # Sin correo verificado por Google no se vincula una cuenta local
+                # por su correo ni se crea una cuenta con ese correo.
+                if not correo_verificado:
+                    raise CorreoNoVerificado("Google no confirmó que tu correo esté verificado.")
                 cuenta = next((u for u in self._usuarios if u["correo"].lower() == correo), None)
             if cuenta is None:
                 cuenta = {
@@ -207,8 +221,9 @@ class AlmacenCuentas:
                 self._usuarios.append(cuenta)
 
             cuenta["google_subject"] = google_subject
-            cuenta["correo"] = correo
-            cuenta["correo_verificado"] = True
+            if correo_verificado:
+                cuenta["correo"] = correo
+                cuenta["correo_verificado"] = True
             self._guardar_json(self.ruta_usuarios, self._usuarios)
 
             token = secrets.token_urlsafe(24)

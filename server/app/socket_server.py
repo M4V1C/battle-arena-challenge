@@ -18,6 +18,8 @@ PORT = int(os.getenv("SOCKET_PORT", "9000"))
 MAX_LINEA =  7 * 1024 * 1024 + 1
 FRECUENCIA_SIMULACION = 60
 DELTA_MAXIMO = 0.1
+# Mensajes que modifican datos compartidos: exigen una conexión con join.
+MENSAJES_CON_JOIN = ("save_config", "select_avatar", "upload_avatar")
 
 
 # Datos propios de una conexión TCP: el puesto que ocupa tras hacer join.
@@ -135,6 +137,11 @@ def procesar_mensaje(
             respuesta = _solicitud_de_puesto(
                 tipo, mensaje, estado_juego, configuracion, sesion
             )
+        elif tipo in MENSAJES_CON_JOIN and sesion.puesto is None:
+            respuesta = _rechazo(
+                "not_joined",
+                "Debes unirte a la sala con join antes de cambiar la configuración o el avatar.",
+            )
         elif tipo == "get_avatars":
             if avatares is None:
                 raise ValueError("El almacén de avatares no está disponible.")
@@ -250,17 +257,35 @@ def guardar_resultado_final(resultados: AlmacenResultados, resultado: dict[str, 
     return bool(respuesta["ok"])
 
 
+def records_previos(resultados: AlmacenResultados, resultado: dict[str, Any]) -> dict[str, Any]:
+    """Compara cada puntaje final con el mejor personal y el mejor global ya guardados."""
+    mejores = {fila["usuario"]: fila["mejor_puntaje"] for fila in resultados.ranking()}
+    mejor_global = max(mejores.values(), default=0)
+    maximo = max(datos["score"] for datos in resultado["players"].values())
+    return {
+        puesto: {
+            "previous_best": mejores.get(datos["username"], 0),
+            "personal_best": datos["score"] > mejores.get(datos["username"], 0),
+            "global_best": datos["score"] == maximo and datos["score"] > mejor_global,
+        }
+        for puesto, datos in resultado["players"].items()
+    }
+
+
 def servir(
     servidor: socket.socket,
     validar_sesion: Callable[[Any], str | None] = validar_sesion_falsa,
     resultados: AlmacenResultados | None = None,
+    estado_juego: EstadoJuego | None = None,
 ) -> None:
     """Acepta conexiones y crea un hilo por cliente sobre el mismo estado."""
     resultados = resultados if resultados is not None else AlmacenResultados()
 
-    estado_juego = EstadoJuego(
-        guardar_resultado=lambda resultado: guardar_resultado_final(resultados, resultado)
-    )
+    if estado_juego is None:
+        estado_juego = EstadoJuego(
+            guardar_resultado=lambda resultado: guardar_resultado_final(resultados, resultado),
+            calcular_records=lambda resultado: records_previos(resultados, resultado),
+        )
     configuracion = AlmacenConfiguracion()
     detener_simulacion = threading.Event()
     avatares = AlmacenAvatares()

@@ -345,7 +345,7 @@ def al_entrar_perfil(estado):
     """
     estado.pestana_perfil = "estadisticas"
     estado.scroll_historial = 0
-    estado.perfil = obtener_perfil(SESION.usuario) if SESION.activa else None
+    estado.perfil = obtener_perfil(SESION.usuario, SESION.token) if SESION.activa else None
 
 
 # ---------------------------------------------------------------------

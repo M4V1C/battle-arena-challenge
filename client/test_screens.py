@@ -113,6 +113,12 @@ class PantallasTest(unittest.TestCase):
         self.pulsar(CAMPO_VALOR.center)
         self.app.procesar_evento(pygame.event.Event(pygame.TEXTINPUT, text="2"))
         self.pulsar(GUARDAR.center)
+        self.red.enviar_mensaje.assert_called_once_with(
+            {"type": "join", "token": self.app.usuarios.token}
+        )
+        self.red.guardar_configuracion.assert_not_called()
+        self.red.obtener_mensaje.return_value = {"type": "joined", "slot": "red", "username": "ana"}
+        self.app.actualizar_configuracion()
         self.red.guardar_configuracion.assert_called_once_with(
             {"condition": "time", "value": 2, "sensitivity": 1.5}
         )
@@ -123,6 +129,22 @@ class PantallasTest(unittest.TestCase):
         self.app.actualizar_configuracion()
         self.assertEqual(self.app._confirmacion, "Configuracion guardada")
         self.app.dibujar(self.superficie, pygame.font.SysFont(None, 36))
+
+    def test_join_rechazado_muestra_el_motivo_y_no_guarda(self):
+        self.app._abrir_configuracion()
+        self.red.obtener_mensaje.return_value = {
+            "type": "config", "config": {"condition": "points", "value": 25, "sensitivity": 1.0}
+        }
+        self.app.actualizar_configuracion()
+        self.pulsar(GUARDAR.center)
+        self.red.obtener_mensaje.return_value = {
+            "type": "reject", "code": "room_full", "message": "La sala ya tiene dos jugadores."
+        }
+        self.app.actualizar_configuracion()
+
+        self.assertEqual(self.app.error, "La sala ya tiene dos jugadores.")
+        self.assertFalse(self.app._pendiente)
+        self.red.guardar_configuracion.assert_not_called()
 
     def test_valores_invalidos_no_se_envian(self):
         self.app._abrir_configuracion()

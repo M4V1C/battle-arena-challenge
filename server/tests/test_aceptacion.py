@@ -7,12 +7,14 @@ from fastapi.testclient import TestClient
 from app.auth_store import AlmacenCuentas
 from app.main import app
 from app.resultados_store import AlmacenResultados
-from app.socket_server import crear_socket_servidor, servir
+from app.socket_server import crear_socket_servidor, guardar_resultado_final, servir
 
 
 def test_aceptacion_registro_login_resultado_ranking_e_historial(tmp_path, monkeypatch):
     import app.main as modulo
 
+    # Sin servidor de correo, la demo obtiene el código de la respuesta HTTP.
+    monkeypatch.setenv("EXPOSE_CODES", "1")
     cuentas = AlmacenCuentas(tmp_path / "usuarios.json", tmp_path / "sesiones.json")
     resultados = AlmacenResultados(tmp_path / "resultados.json")
     monkeypatch.setattr(modulo, "cuentas", cuentas)
@@ -30,28 +32,25 @@ def test_aceptacion_registro_login_resultado_ranking_e_historial(tmp_path, monke
 
     login = cliente.post("/auth/login", json={"identificador": "ana", "clave": "Clave123"})
     assert login.status_code == 200
+    cabecera = {"Authorization": f"Bearer {login.json()['token']}"}
 
-    guardado = cliente.post("/resultados", json={
-        "match_id": "aceptacion-1",
-        "jugadores": {
-            "red": {"usuario": "ana", "score": 12},
-            "blue": {"usuario": "beto", "score": 8},
-        },
-        "winner": "red",
-        "elapsed": 95,
-        "overtime": 0,
-        "condition": "points",
-        "value": 10,
+    # El resultado lo guarda el servidor de juego en proceso, no un cliente HTTP.
+    assert guardar_resultado_final(resultados, {
+        "id": "aceptacion-1", "winner": "red", "elapsed": 95, "overtime": 0,
+        "condition": "points", "value": 10,
+        "players": {"red": {"username": "ana", "score": 12},
+                    "blue": {"username": "beto", "score": 8}},
     })
-    assert guardado.status_code == 200
+    assert cliente.post("/resultados", json={"match_id": "falsa", "jugadores": {}}).status_code == 405
 
     ranking = cliente.get("/ranking").json()["ranking"]
     assert ranking[0]["usuario"] == "ana"
     assert ranking[0]["puntaje_total"] == 12
 
-    historial = cliente.get("/usuarios/ana/historial").json()["historial"]
+    historial = cliente.get("/usuarios/ana/historial", headers=cabecera).json()["historial"]
     assert historial[0]["match_id"] == "aceptacion-1"
     assert historial[0]["resultado"] == "victoria"
+    assert cliente.get("/usuarios/ana/historial").status_code == 401
 
 
 def test_aceptacion_google_sin_o_con_configuracion(monkeypatch):

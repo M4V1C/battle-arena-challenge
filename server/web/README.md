@@ -9,6 +9,7 @@ Se sirve desde FastAPI en `http://127.0.0.1:8000/webapp/`.
 - Resumen de partidas, victorias, puntaje y mejor puntaje.
 - Historial del usuario conectado.
 - Ranking global.
+- Partida en curso (jugadores, puntaje, tiempo, reactor y eventos), actualizada cada 1,5 s desde `GET /partida/estado`.
 
 ## Ejecución
 

@@ -129,9 +129,11 @@ class EstadoJuego:
         guardianes: tuple[Guardian, ...] | None = None,
         eventos: bool | None = None,
         guardar_resultado: Callable[[dict[str, Any]], bool] | None = None,
+        calcular_records: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
     ):
         self._reglas = reglas if reglas is not None else cargar_reglas()
         self._guardar_resultado = guardar_resultado
+        self._calcular_records = calcular_records
 
         self._configuracion = dict(CONFIGURACION_INICIAL)
         self._obstaculos = tuple(obstaculos)
@@ -512,6 +514,9 @@ class EstadoJuego:
         self._tiempo_reactor = 0.0
 
     def _recoger_energia(self, nombre: str) -> None:
+        # Durante la sobrecarga nadie suma energía; el ícono sigue hasta que vence.
+        if self._evento_activo("overload"):
+            return
         jugador = self._jugadores[nombre]
         for evento in self._eventos:
             zona = self._energia_items.get(evento.id)
@@ -602,6 +607,12 @@ class EstadoJuego:
                 for puesto in PUESTOS
             },
         }
+        if self._calcular_records is not None:
+            # Se compara con lo guardado antes de esta partida; un fallo no impide cerrarla.
+            try:
+                self._resultado_final["records"] = self._calcular_records(self._resultado_final)
+            except (OSError, TypeError, ValueError):
+                pass
         if self._guardar_resultado is not None:
             try:
                 self._resultado_persistido = bool(self._guardar_resultado(self._resultado_final))
@@ -873,17 +884,20 @@ class EstadoJuego:
             self._mover_y(jugador, jugador.dir_y * distancia / pasos)
 
     def _avanzar_guardianes(self, delta_t: float) -> None:
-        """Persiguen al jugador libre más cercano y aturden al tocar un avatar."""
+        """Persiguen al jugador libre más cercano (o al inmovilizado más cercano si no hay
+        ninguno libre) y aturden al tocar un avatar."""
         tamano = TAMANO_GUARDIAN
         velocidad = self._reglas.velocidad_guardian
         pasos = max(1, math.ceil(velocidad * delta_t / (tamano / 2)))
         paso_t = delta_t / pasos
         for guardian in self._guardianes:
             for _ in range(pasos):
-                elegibles = [
+                libres = [
                     (nombre, jugador) for nombre, jugador in self._jugadores.items()
                     if jugador.bloqueo_restante <= 0
                 ]
+                # Sin objetivo libre, se acercan al avatar inmovilizado más cercano.
+                elegibles = libres or list(self._jugadores.items())
                 if elegibles:
                     nombre, objetivo = min(
                         elegibles,

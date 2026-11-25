@@ -36,6 +36,14 @@ boton_login = Boton(X_CAMPOS, PANEL.y + 375, ANCHO_CAMPOS, 52, "Iniciar sesión"
 boton_ir_registro = Boton(X_CAMPOS, PANEL.y + 512, ANCHO_CAMPOS, 52, "Crear cuenta")
 boton_google = Boton(X_CAMPOS, PANEL.y + 430, ANCHO_CAMPOS, 52, "Continuar con Google")
 
+# Estados finales del inicio con Google que no entregan sesión.
+MENSAJES_GOOGLE = {
+    "fallido": "No se pudo completar el inicio con Google. Inténtalo otra vez.",
+    "expirado": "El inicio con Google expiró. Inténtalo otra vez.",
+    "desconocido": "El inicio con Google expiró. Inténtalo otra vez.",
+    "entregado": "Ese inicio con Google ya se usó. Inténtalo otra vez.",
+}
+
 
 # ---------------------------------------------------------------------
 # 2) DIBUJO
@@ -74,9 +82,9 @@ def eventos_login(evento, estado):
                 SESION.iniciar(cuenta)
                 estado.google_state = None
                 ir_a(estado, "juego")
-            elif resultado["estado"] == "expirado":
+            elif resultado["estado"] in MENSAJES_GOOGLE:
                 estado.google_state = None
-                estado.poner_mensaje("El inicio con Google expiró. Inténtalo otra vez.")
+                estado.poner_mensaje(resultado.get("mensaje") or MENSAJES_GOOGLE[resultado["estado"]])
         except ValueError as error:
             estado.poner_mensaje(str(error))
 

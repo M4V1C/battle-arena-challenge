@@ -100,6 +100,18 @@ td { font-size: 14px; }
 .victoria { color: var(--verde); }
 .derrota { color: var(--rojo); }
 
+#partidaPanel .tituloPanel { justify-content: space-between; gap: 12px; }
+.etiqueta { color: var(--verde); font-size: 13px; font-weight: 700; }
+.partidaCuerpo { padding: 14px 18px; display: grid; gap: 10px; }
+.detalle { margin: 0; color: var(--muted); font-size: 14px; }
+.jugadoresPartida { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.jugadorPartida { padding: 12px; border: 1px solid var(--borde); border-radius: 8px; background: var(--panel-2); overflow-wrap: anywhere; }
+.jugadorPartida p { margin: 0 0 6px; }
+.jugadorPartida strong { display: block; font-size: 24px; }
+.jugadorPartida span { color: var(--muted); font-size: 13px; }
+.jugadorPartida.rojo { border-left: 4px solid var(--rojo); }
+.jugadorPartida.azul { border-left: 4px solid var(--azul); }
+
 @media (max-width: 900px) {
   .resumen { grid-template-columns: repeat(2, 1fr); }
   .tarjeta.principal { grid-column: 1 / -1; }

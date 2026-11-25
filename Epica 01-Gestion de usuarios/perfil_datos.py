@@ -18,7 +18,9 @@
 #  (el jugador los ve aunque haya cerrado y vuelto a abrir el juego).
 # =====================================================================
 
+import math
 import time
+from datetime import datetime, timezone
 
 from config import PUNTOS_POR_NIVEL
 from base_datos import cargar_usuarios, guardar_usuarios, buscar_cuenta_por_usuario
@@ -40,6 +42,19 @@ def fecha_hoy():
 def fecha_hora_ahora():
     """Fecha y hora actuales, por ejemplo '25/10/2026 14:30'."""
     return time.strftime("%d/%m/%Y %H:%M")
+
+
+def formatear_fecha(valor):
+    """Convierte una fecha ISO 8601 del servidor a la hora local: '24/11/2026 15:05'."""
+    if not isinstance(valor, str) or not valor.strip():
+        return "Sin fecha"
+    try:
+        fecha = datetime.fromisoformat(valor.strip())
+    except ValueError:
+        return "Sin fecha"
+    if fecha.tzinfo is None:
+        fecha = fecha.replace(tzinfo=timezone.utc)
+    return fecha.astimezone().strftime("%d/%m/%Y %H:%M")
 
 
 def formatear_duracion(segundos):
@@ -182,10 +197,10 @@ def calcular_ranking(usuarios, nombre_usuario, tamano_top=5):
 # ---------------------------------------------------------------------
 # PERFIL COMPLETO (lo que muestra la pantalla de perfil)
 # ---------------------------------------------------------------------
-def obtener_perfil(nombre_usuario):
+def obtener_perfil(nombre_usuario, token=None):
     try:
         from api_servidor import historial, perfil, ranking
-        remoto = perfil(nombre_usuario)
+        remoto = perfil(nombre_usuario, token)
         datos_ranking = ranking()["ranking"]
         mi_fila = next((fila for fila in datos_ranking if fila["usuario"] == nombre_usuario), None)
         top = [
@@ -202,14 +217,14 @@ def obtener_perfil(nombre_usuario):
             "mi_puntaje": mi_fila["puntaje_total"] if mi_fila else 0,
             "top": top,
         }
-        datos_historial = historial(nombre_usuario)["historial"]
+        datos_historial = historial(nombre_usuario, token)["historial"]
         historial_normalizado = []
         for partida in datos_historial:
             historial_normalizado.append({
-                "fecha": partida["match_id"],
+                "fecha": formatear_fecha(partida.get("fecha")),
                 "resultado": partida["resultado"],
                 "puntaje": partida["score"],
-                "duracion_seg": int(partida["elapsed"]),
+                "duracion_seg": max(0, math.floor(float(partida["elapsed"]) + 0.5)),
             })
         est = dict(remoto.get("estadisticas", {}))
         partidas = int(est.get("partidas_jugadas", 0))

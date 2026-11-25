@@ -1,11 +1,17 @@
 import json
 import os
 import threading
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
 
 ARCHIVO_RESULTADOS = Path(__file__).resolve().parents[1] / "data" / "resultados.json"
+
+
+def fecha_actual_utc() -> str:
+    """Fecha y hora actual en ISO 8601 con zona UTC, por ejemplo 2026-11-24T21:05:00+00:00."""
+    return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
 class AlmacenResultados:
@@ -32,6 +38,7 @@ class AlmacenResultados:
                         raise ValueError("El archivo de resultados anterior tiene datos inválidos.")
                     partidas.append({
                         "match_id": antiguo["id"],
+                        "fecha": antiguo.get("fecha"),
                         "winner": antiguo.get("winner"),
                         "elapsed": float(antiguo.get("elapsed", 0)),
                         "overtime": int(antiguo.get("overtime", 0)),
@@ -78,6 +85,7 @@ class AlmacenResultados:
 
             resultado = {
                 "match_id": match_id,
+                "fecha": fecha_actual_utc(),
                 "winner": winner,
                 "elapsed": float(elapsed),
                 "overtime": int(overtime),
@@ -144,6 +152,8 @@ class AlmacenResultados:
                     if datos.get("usuario") == usuario:
                         partidas.append({
                             "match_id": partida["match_id"],
+                            # Los registros anteriores a la fecha devuelven None.
+                            "fecha": partida.get("fecha"),
                             "puesto": puesto,
                             "resultado": "victoria" if partida.get("winner") == puesto else "derrota",
                             "score": int(datos.get("score", 0)),

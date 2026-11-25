@@ -34,12 +34,30 @@ def test_guardian_persigue_al_mas_cercano_que_no_este_congelado():
             (segundo["y"] - primero["y"]) ** 2) ** 0.5 <= 12.01
 
 
-def test_guardian_espera_si_ambos_estan_congelados():
+def test_sin_objetivo_libre_se_acerca_al_atrapado_mas_cercano():
     juego = partida_iniciada(obstaculos=(), guardianes=(Guardian("g", 500, 500),))
     for jugador in juego._jugadores.values():
         jugador.bloqueo_restante = 5
+    rojo = juego._jugadores["red"]
+    distancia_inicial = ((rojo.x - 500) ** 2 + (rojo.y - 500) ** 2) ** 0.5
+
     guardian = juego.avanzar(1)["guardians"][0]
-    assert (guardian["x"], guardian["y"], guardian["target"]) == (500, 500, None)
+
+    assert guardian["target"] == "red"
+    distancia = ((rojo.x - guardian["x"]) ** 2 + (rojo.y - guardian["y"]) ** 2) ** 0.5
+    assert distancia == pytest.approx(distancia_inicial - 120)
+
+
+def test_al_alcanzar_al_atrapado_le_suma_tiempo_una_sola_vez():
+    juego = partida_iniciada(obstaculos=(), guardianes=(Guardian("g", 160, 100),))
+    for jugador in juego._jugadores.values():
+        jugador.bloqueo_restante = 5
+
+    juego.avanzar(1)
+
+    rojo = juego.estado()["players"]["red"]
+    assert rojo["stun_remaining"] == pytest.approx(5 - 1 + 2)
+    assert sum(n["kind"] == "guardian_hit" for n in juego.estado()["notifications"]) == 1
 
 
 def test_contacto_aturde_bloquea_acciones_y_no_suma_puntos():

@@ -16,6 +16,7 @@ class Sesion:
         self.usuario = None        # Nombre del jugador (None = nadie ha iniciado sesión)
         self.correo = None
         self.avatar = "default"
+        self.token = None
 
     @property
     def activa(self):

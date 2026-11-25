@@ -1,17 +1,25 @@
+import logging
+import os
 import threading
 from contextlib import asynccontextmanager
 
 from pathlib import Path
+from urllib.parse import urlencode
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
-from app.socket_server import HOST, PORT, crear_socket_servidor, servir
-from app.auth_store import AlmacenCuentas
+from app.socket_server import (
+    HOST, PORT, crear_socket_servidor, guardar_resultado_final, records_previos, servir,
+)
+from app.auth_store import AlmacenCuentas, CorreoNoVerificado
+from app.game_state import EstadoJuego
 from app.resultados_store import AlmacenResultados
 from app.social_store import AlmacenLoginSocial
+
+bitacora = logging.getLogger("battle_arena.api")
 
 # Context manager para el ciclo de vida del servidor de sockets
 @asynccontextmanager
@@ -20,7 +28,11 @@ async def lifespan(app: FastAPI):
     threading.Thread(
         target=servir,
         args=(srv,),
-        kwargs={"validar_sesion": cuentas.validar_sesion, "resultados": resultados},
+        kwargs={
+            "validar_sesion": cuentas.validar_sesion,
+            "resultados": resultados,
+            "estado_juego": partida,
+        },
         daemon=True,
     ).start()
     print(f"Servidor de sockets escuchando en {HOST}:{PORT}", flush=True)
@@ -37,6 +49,54 @@ app.mount("/webapp", StaticFiles(directory=WEB_DIR, html=True), name="webapp")
 cuentas = AlmacenCuentas()
 resultados = AlmacenResultados()
 social = AlmacenLoginSocial(cuentas)
+# Partida compartida con el servidor TCP; guarda en el almacén vigente al cerrar.
+partida = EstadoJuego(
+    guardar_resultado=lambda resultado: guardar_resultado_final(resultados, resultado),
+    calcular_records=lambda resultado: records_previos(resultados, resultado),
+)
+
+
+def usuario_autenticado(authorization: str | None = Header(default=None)) -> str:
+    """Devuelve el usuario dueño del token `Authorization: Bearer <token>` o responde 401."""
+    esquema, _, token = (authorization or "").partition(" ")
+    if esquema.lower() != "bearer" or not token.strip():
+        raise HTTPException(
+            status_code=401,
+            detail="Inicia sesión para consultar estos datos.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    usuario = cuentas.validar_sesion(token.strip())
+    if usuario is None:
+        raise HTTPException(
+            status_code=401,
+            detail="La sesión no es válida o expiró. Inicia sesión de nuevo.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+    return usuario
+
+
+def exigir_mismo_usuario(usuario: str, autenticado: str) -> str:
+    """Responde 403 si la ruta pide datos de otra cuenta; devuelve el nombre canónico."""
+    if usuario.strip().lower() != autenticado.lower():
+        raise HTTPException(status_code=403, detail="Solo puedes consultar tus propios datos.")
+    return autenticado
+
+
+def participa(partida: dict, usuario: str) -> bool:
+    return any(
+        str(datos.get("usuario") or "").lower() == usuario.lower()
+        for datos in partida.get("jugadores", {}).values()
+    )
+
+
+CODIGOS_DE_UN_SOLO_USO = ("codigo_verificacion", "codigo_recuperacion")
+
+
+def sin_codigos(respuesta: dict) -> dict:
+    """Quita los códigos de la respuesta salvo en modo demo (EXPOSE_CODES=1)."""
+    if os.environ.get("EXPOSE_CODES", "0").strip() == "1":
+        return respuesta
+    return {clave: valor for clave, valor in respuesta.items() if clave not in CODIGOS_DE_UN_SOLO_USO}
 
 
 class Registro(BaseModel):
@@ -65,16 +125,6 @@ class RecuperacionRestablecer(BaseModel):
     clave_nueva: str = Field(min_length=8)
 
 
-class Resultado(BaseModel):
-    match_id: str
-    jugadores: dict
-    winner: str | None = None
-    elapsed: float = 0.0
-    overtime: int = 0
-    condition: str | None = None
-    value: int | None = None
-
-
 @app.get("/health")
 def health():
     return {"status": "ok"}
@@ -83,7 +133,7 @@ def health():
 @app.post("/auth/register")
 def registrar(datos: Registro):
     try:
-        return cuentas.registrar(datos.usuario, datos.correo, datos.clave)
+        return sin_codigos(cuentas.registrar(datos.usuario, datos.correo, datos.clave))
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
@@ -107,14 +157,14 @@ def login(datos: Login):
 @app.post("/auth/verify/resend")
 def reenviar_verificacion(datos: dict):
     try:
-        return cuentas.reenviar_verificacion(str(datos.get("usuario", "")))
+        return sin_codigos(cuentas.reenviar_verificacion(str(datos.get("usuario", ""))))
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
 
 
 @app.post("/auth/recovery/request")
 def solicitar_recuperacion(datos: RecuperacionSolicitud):
-    return cuentas.solicitar_recuperacion(datos.correo)
+    return sin_codigos(cuentas.solicitar_recuperacion(datos.correo))
 
 
 @app.post("/auth/recovery/reset")
@@ -127,7 +177,11 @@ def restablecer(datos: RecuperacionRestablecer):
 
 @app.get("/auth/usuarios")
 def listar_usuarios():
-    return {"usuarios": cuentas.listar()}
+    # Lista pública: nunca incluye correos.
+    return {"usuarios": [
+        {"usuario": cuenta["usuario"], "correo_verificado": cuenta["correo_verificado"]}
+        for cuenta in cuentas.listar()
+    ]}
 
 
 @app.post("/auth/social/google/start")
@@ -154,13 +208,26 @@ def iniciar_google(datos: dict):
     }
 
 
+MENSAJE_GOOGLE_CANCELADO = "Se canceló el inicio de sesión con Google."
+MENSAJE_GOOGLE_FALLO = "No se pudo completar el inicio de sesión con Google. Inténtalo de nuevo."
+
+
+def volver_a_la_web(**parametros: str) -> RedirectResponse:
+    return RedirectResponse(url="/webapp/?" + urlencode(parametros), status_code=303)
+
+
 @app.get("/auth/social/google/callback")
-def google_callback(code: str, state: str):
+def google_callback(state: str = "", code: str = "", error: str = ""):
     import json
     import os
     import urllib.parse
     import urllib.request
-    import urllib.error
+
+    if not code:
+        # Google vuelve sin código si el usuario cancela (error=access_denied) o si falla.
+        cancelado = error in ("", "access_denied")
+        social.fallar_google(state, MENSAJE_GOOGLE_CANCELADO if cancelado else MENSAJE_GOOGLE_FALLO)
+        return volver_a_la_web(google_error="cancelado" if cancelado else "fallo")
 
     client_id = os.environ.get("GOOGLE_CLIENT_ID", "")
     client_secret = os.environ.get("GOOGLE_CLIENT_SECRET", "")
@@ -169,7 +236,8 @@ def google_callback(code: str, state: str):
         "http://127.0.0.1:8000/auth/social/google/callback",
     )
     if not client_id or not client_secret:
-        raise HTTPException(status_code=503, detail="Google OAuth no está configurado.")
+        social.fallar_google(state, MENSAJE_GOOGLE_FALLO)
+        return volver_a_la_web(google_error="fallo")
 
     try:
         body = urllib.parse.urlencode({
@@ -191,16 +259,22 @@ def google_callback(code: str, state: str):
         with urllib.request.urlopen(peticion, timeout=10) as respuesta:
             perfil = json.loads(respuesta.read().decode("utf-8"))
 
-        login = social.completar_google(
+        social.completar_google(
             state,
             google_subject=str(perfil["sub"]),
             correo=str(perfil.get("email", "")),
             nombre=perfil.get("name"),
+            correo_verificado=perfil.get("email_verified") in (True, "true"),
         )
-    except (urllib.error.URLError, urllib.error.HTTPError, KeyError, ValueError) as error:
-        raise HTTPException(status_code=400, detail=f"No se pudo completar Google login: {error}") from error
+    except CorreoNoVerificado:
+        return volver_a_la_web(google_error="correo_no_verificado")
+    except (OSError, KeyError, TypeError, ValueError) as fallo:
+        # El detalle queda solo en el registro del servidor; al usuario se le da un mensaje genérico.
+        bitacora.warning("Fallo el inicio de sesión con Google: %s: %s", type(fallo).__name__, fallo)
+        social.fallar_google(state, MENSAJE_GOOGLE_FALLO)
+        return volver_a_la_web(google_error="fallo")
 
-    return RedirectResponse(url=f"/webapp/?google_state={state}", status_code=303)
+    return volver_a_la_web(google_state=state)
 
 
 @app.get("/auth/social/google/status")
@@ -216,32 +290,19 @@ def validar_sesion(token: dict):
     return {"usuario": usuario}
 
 
-@app.post("/resultados")
-def guardar_resultado(datos: Resultado):
-    try:
-        return resultados.guardar_resultado(
-            datos.match_id,
-            datos.jugadores,
-            datos.winner,
-            datos.elapsed,
-            datos.overtime,
-            datos.condition,
-            datos.value,
-        )
-    except ValueError as error:
-        raise HTTPException(status_code=400, detail=str(error)) from error
-
-
 @app.get("/resultados")
-def listar_resultados():
-    return {"partidas": resultados.listar()}
+def listar_resultados(autenticado: str = Depends(usuario_autenticado)):
+    # Los resultados los guarda el servidor de juego en proceso; aquí solo se consultan.
+    return {"partidas": [p for p in resultados.listar() if participa(p, autenticado)]}
 
 
 @app.get("/resultados/{match_id}")
-def obtener_resultado(match_id: str):
+def obtener_resultado(match_id: str, autenticado: str = Depends(usuario_autenticado)):
     resultado = resultados.obtener(match_id)
     if resultado is None:
         raise HTTPException(status_code=404, detail="Resultado no encontrado.")
+    if not participa(resultado, autenticado):
+        raise HTTPException(status_code=403, detail="Solo puedes consultar tus propias partidas.")
     return resultado
 
 
@@ -251,15 +312,56 @@ def ranking():
     return {"ranking": ranking_ordenado, "total": len(ranking_ordenado)}
 
 
+def estado_publico(estado: dict) -> dict:
+    """Resumen de la partida sin posiciones, tokens ni correos."""
+    datos_partida = estado["match"]
+    limite = datos_partida["time_limit"]
+    return {
+        "match_id": datos_partida["match_id"],
+        "iniciada": datos_partida["started"],
+        "finalizada": datos_partida["finished"],
+        "en_curso": datos_partida["started"] and not datos_partida["finished"],
+        "escenario": estado["scenario"]["name"],
+        "condicion": datos_partida["condition"],
+        "objetivo": datos_partida["value"],
+        "tiempo": {
+            "transcurrido": datos_partida["elapsed"],
+            "limite": limite,
+            "restante": max(0.0, limite - datos_partida["elapsed"]) if limite is not None else None,
+            "prorrogas": datos_partida["overtime"],
+        },
+        "ganador": datos_partida["winner"],
+        "reactor": {"estado": estado["reactor"]["status"], "operador": estado["reactor"]["operator"]},
+        "jugadores": {
+            puesto: {
+                "usuario": jugador["username"],
+                "puntaje": jugador["score"],
+                "conectado": jugador["connected"],
+                "estado": jugador["status"],
+            }
+            for puesto, jugador in estado["players"].items()
+        },
+        "eventos_activos": [
+            {"tipo": evento["type"], "restante": evento["remaining"]}
+            for evento in estado["events"] if evento["status"] == "active"
+        ],
+    }
+
+
+@app.get("/partida/estado")
+def estado_partida():
+    return estado_publico(partida.estado())
+
+
 @app.get("/usuarios/{usuario}/historial")
-def historial_usuario(usuario: str):
-    usuario = usuario.strip().lower()
+def historial_usuario(usuario: str, autenticado: str = Depends(usuario_autenticado)):
+    usuario = exigir_mismo_usuario(usuario, autenticado)
     return {"usuario": usuario, "historial": resultados.historial(usuario)}
 
 
 @app.get("/usuarios/{usuario}/perfil")
-def perfil_usuario(usuario: str):
-    usuario = usuario.strip().lower()
+def perfil_usuario(usuario: str, autenticado: str = Depends(usuario_autenticado)):
+    usuario = exigir_mismo_usuario(usuario, autenticado)
     try:
         cuenta = cuentas.perfil(usuario)
     except ValueError:
